@@ -2,6 +2,7 @@
 #define APP_CLIENT_HPP
 
 #include "event_loop.hpp"
+#include "../orientation.hpp"
 #include "buttons.hpp"
 #include "screen.hpp"
 #include "touch.hpp"
@@ -35,7 +36,8 @@ public:
      * @param password Password to use for the VNC connection.
      * @param device Handle to opened devices.
      */
-    client(const char* ip, int port, const char* password, rmioc::device& device);
+    client(const char* ip, int port, const char* password, rmioc::device& device,
+           vnsee::Orientation orientation = vnsee::Orientation::Auto);
 
     /** Disconnect the VNC client. */
     ~client();

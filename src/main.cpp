@@ -1,4 +1,5 @@
 #include "options.hpp"
+#include "orientation.hpp"
 #include "app/client.hpp"
 #include "config.hpp"
 #include "rmioc/device.hpp"
@@ -32,7 +33,10 @@ auto help(const char* name) -> void
 "  -v, --version        Show the current version of " PROJECT_NAME " and exit.\n"
 "  --no-buttons         Disable buttons interaction.\n"
 "  --no-pen             Disable pen interaction.\n"
-"  --no-touch           Disable touchscreen interaction.\n";
+"  --no-touch           Disable touchscreen interaction.\n"
+"  --orientation MODE   Display rotation. MODE: auto (default), portrait,\n"
+"                       landscape (= landscape-cw), landscape-ccw,\n"
+"                       inverted-landscape, inverted-portrait.\n";
 }
 
 /**
@@ -169,6 +173,21 @@ auto main(int argc, const char* argv[]) -> int
         request.set_touch(true);
     }
 
+    vnsee::Orientation orientation = vnsee::Orientation::Auto;
+    if (opts.count("orientation") >= 1)
+    {
+        const auto& vals = opts["orientation"];
+        if (vals.empty())
+        {
+            std::cerr << "--orientation requires a value "
+                "(auto|portrait|landscape|landscape-ccw|"
+                "inverted-landscape|inverted-portrait).\n";
+            return EXIT_FAILURE;
+        }
+        orientation = vnsee::orientation_from_string(vals.front());
+        opts.erase("orientation");
+    }
+
     if (!opts.empty())
     {
         std::cerr << "Unknown options: ";
@@ -199,7 +218,7 @@ auto main(int argc, const char* argv[]) -> int
         std::cerr << "Connecting to "
             << server_ip << ":" << server_port << "\n";
 
-        app::client client{server_ip.data(), server_port, password.data(), device};
+        app::client client{server_ip.data(), server_port, password.data(), device, orientation};
 
         std::cerr << "Connection established\n";
 

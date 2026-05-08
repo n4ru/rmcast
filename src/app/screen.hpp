@@ -2,9 +2,12 @@
 #define APP_SCREEN_HPP
 
 #include "event_loop.hpp"
+#include "../orientation.hpp"
 #include "../rmioc/screen.hpp"
 #include <chrono>
+#include <cstdint>
 #include <iosfwd>
+#include <vector>
 #include <rfb/rfbclient.h>
 #include <rfb/rfbproto.h>
 
@@ -23,10 +26,24 @@ class screen
 public:
     screen(
         rmioc::screen& device,
-        rfbClient* vnc_client
+        rfbClient* vnc_client,
+        vnsee::Orientation orientation = vnsee::Orientation::Auto
     );
 
     event_loop_status event_loop();
+
+    /**
+     * Transform input coordinates from fb0 (panel) space into server space,
+     * applying the inverse of the current display rotation. No-op for
+     * Portrait orientation.
+     */
+    void transform_input(int& x, int& y) const;
+
+    /**
+     * Resolved orientation (Auto turns into Portrait or LandscapeCW after
+     * the framebuffer is initialized).
+     */
+    vnsee::Orientation effective_orientation() const { return effective_; }
 
     /**
      * Force flushing any pending updates to the screen.
@@ -147,6 +164,35 @@ private:
     int standard_waveform_mode;
 
     int fast_waveform_mode;
+
+    /** Requested orientation (Auto is resolved on framebuffer init). */
+    vnsee::Orientation requested_;
+
+    /** Resolved orientation actually applied during blit. */
+    vnsee::Orientation effective_;
+
+    /**
+     * Intermediate buffer that libvncclient writes into.
+     * Sized to source (server) dimensions × bytes-per-pixel so libvncclient's
+     * row stride matches its own width — no wrap into fb0.
+     */
+    std::vector<std::uint8_t> src_buffer_;
+
+    /** Source (server-reported) dimensions, set in create_framebuf. */
+    int src_width_  = 0;
+    int src_height_ = 0;
+
+    /** Bytes per pixel for both source and fb0 (vnsee assumes 16-bit RGB565). */
+    int bytes_per_pixel_ = 2;
+
+    /**
+     * Copy a dirty rectangle from the source-shape intermediate buffer into
+     * the panel-shape fb0 buffer, applying the current rotation. Returns the
+     * resulting rectangle in fb0 (panel) coordinates via the out params.
+     */
+    void blit_rotated(
+        int sx, int sy, int sw, int sh,
+        int& dx, int& dy, int& dw, int& dh);
 }; // class screen
 
 } // namespace app

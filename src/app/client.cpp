@@ -58,7 +58,8 @@ namespace app
 
 using namespace std::placeholders;
 
-client::client(const char* ip, int port, const char* password, rmioc::device& device)
+client::client(const char* ip, int port, const char* password, rmioc::device& device,
+               vnsee::Orientation orientation)
 : vnc_client(rfbGetClient(0, 0, 0))
 {
     if (device.get_screen() == nullptr)
@@ -69,7 +70,7 @@ client::client(const char* ip, int port, const char* password, rmioc::device& de
     auto& screen_device = *device.get_screen();
 
     // Initialize the member screen_handler (avoid shadowing a local variable).
-    this->screen_handler = std::make_unique<screen>(screen_device, vnc_client);
+    this->screen_handler = std::make_unique<screen>(screen_device, vnc_client, orientation);
 
     auto virtualkeyboard_callback = [this](int keyCode, bool down)
     {
@@ -241,12 +242,18 @@ void client::send_button_press(
     auto button_flag = static_cast<std::uint8_t>(button);
     constexpr auto bits = 8 * sizeof(button_flag);
 
+    // Touch arrives in fb0 (panel) coords. The server expects coords in its
+    // own framebuffer space; invert the current rotation.
+    int sx = x, sy = y;
+    if (this->screen_handler) this->screen_handler->transform_input(sx, sy);
+
     vnsee::log::print("Button press")
-        << x << 'x' << y << " (button mask: "
+        << "panel " << x << 'x' << y << " → server " << sx << 'x' << sy
+        << " (button mask: "
         << std::setfill('0') << std::setw(bits)
         << std::bitset<bits>(button_flag) << ")\n";
 
-    SendPointerEvent(this->vnc_client, x, y, button_flag);
+    SendPointerEvent(this->vnc_client, sx, sy, button_flag);
 }
 
 void client::send_virtual_key_press(
