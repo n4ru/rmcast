@@ -51,7 +51,7 @@ private:
     // Defaults match the most-common rMPP/USB-tether scenario.
     QString m_host        = QStringLiteral("10.11.99.2");
     int     m_port        = 5900;
-    int     m_fps         = 8;
+    int     m_fps         = 0;     // 0 = "free" (no cap)
     QString m_waveform    = QStringLiteral("A2");
     QString m_orientation = QStringLiteral("auto");
     QString m_encoding    = QStringLiteral("COPYRECT");

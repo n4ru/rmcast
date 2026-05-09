@@ -38,6 +38,7 @@ struct HelloC2S {
     uint32_t client_version;     // VERSION the client speaks
     uint32_t requested_w;        // client's preferred width  (0 = ask server)
     uint32_t requested_h;        // client's preferred height (0 = ask server)
+    uint32_t requested_fps;      // 0 = uncapped ("free"); otherwise frames/sec cap
 };
 
 struct HelloAckS2C {

@@ -130,30 +130,6 @@ Rectangle {
             }
         }
 
-        // ---- Refresh rate (no card; matches Flight mode row) ----
-        Item {
-            width: parent.width
-            height: 64
-            Text {
-                anchors { left: parent.left; verticalCenter: parent.verticalCenter }
-                text: "Refresh rate"
-                font.family: "Noto Sans"
-                font.pixelSize: 22
-                color: "black"
-            }
-            SegmentRow {
-                anchors { right: parent.right; verticalCenter: parent.verticalCenter }
-                width: 480
-                height: 48
-                options: ["4", "8", "12", "free"]
-                current: root.fps === 4 ? "4" : root.fps === 8 ? "8" : root.fps === 12 ? "12" : "free"
-                onPicked: function(v) {
-                    root.fps = v === "free" ? 0 : parseInt(v)
-                    root.dismissKeyboard()
-                }
-            }
-        }
-
         // ---- Advanced toggle (no card) ----
         Item {
             width: parent.width
@@ -233,6 +209,36 @@ Rectangle {
                         }
                         onAccepted: root.dismissKeyboard()
                         onActiveFocusChanged: if (!activeFocus && Qt.inputMethod) Qt.inputMethod.hide()
+                    }
+                }
+                Rectangle { width: parent.width - 32; x: 16; height: 1; color: "black"; opacity: 0.12 }
+
+                // Refresh rate row (server enforces this cap via the
+                // qtfb HELLO handshake — frames over this rate get dropped).
+                Column {
+                    width: parent.width - 48
+                    x: 24
+                    spacing: 10
+                    topPadding: 14
+                    bottomPadding: 14
+                    Text {
+                        text: "Refresh rate"
+                        font.family: "Noto Sans"
+                        font.pixelSize: 19
+                        color: "black"
+                    }
+                    SegmentRow {
+                        width: parent.width
+                        height: 48
+                        options: ["4", "8", "12", "free"]
+                        current: root.fps === 4  ? "4"
+                               : root.fps === 8  ? "8"
+                               : root.fps === 12 ? "12"
+                               : "free"
+                        onPicked: function(v) {
+                            root.fps = v === "free" ? 0 : parseInt(v)
+                            root.dismissKeyboard()
+                        }
                     }
                 }
                 Rectangle { width: parent.width - 32; x: 16; height: 1; color: "black"; opacity: 0.12 }

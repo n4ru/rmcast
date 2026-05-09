@@ -4,6 +4,7 @@
 #include <QFile>
 #include <QDebug>
 #include <QDateTime>
+#include <QElapsedTimer>
 #include <fcntl.h>
 #include <sys/mman.h>
 #include <sys/stat.h>
@@ -120,6 +121,16 @@ void Server::onSocketReadyRead() {
             if (m_socket->bytesAvailable() < (qint64)sizeof(Frame)) return;
             Frame msg{};
             m_socket->read(reinterpret_cast<char *>(&msg), sizeof(msg));
+            // Apply the negotiated fps cap. We always swallow the message
+            // (so the shm gets the new pixels), but skip the QML repaint
+            // signal when the previous emit is too recent.
+            if (m_fps_cap > 0 && m_min_period_ms > 0) {
+                const qint64 now_ms = QDateTime::currentMSecsSinceEpoch();
+                if (m_last_emit_ms != 0 && now_ms - m_last_emit_ms < m_min_period_ms) {
+                    break;   // drop this frame for paint
+                }
+                m_last_emit_ms = now_ms;
+            }
             emit frameReady(msg.seq, msg.x, msg.y, msg.w, msg.h);
             break;
         }
@@ -140,6 +151,12 @@ void Server::onSocketReadyRead() {
 }
 
 void Server::handleHello(const HelloC2S &msg) {
+    // Server-side fps enforcement. Client requests its desired cap in
+    // HELLO; 0 = unlimited.
+    m_fps_cap       = msg.requested_fps;
+    m_min_period_ms = (m_fps_cap == 0) ? 0 : (1000 / m_fps_cap);
+    m_last_emit_ms  = 0;
+
     HelloAckS2C ack{};
     ack.header.magic = MAGIC;
     ack.header.tag   = static_cast<uint32_t>(Tag::HelloAckS2C);

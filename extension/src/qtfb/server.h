@@ -59,6 +59,11 @@ private:
 
     int      m_w = 0, m_h = 0, m_stride = 0;
     uint32_t m_bpp = 0, m_format = 0;
+
+    // Server-side fps cap negotiated in HELLO. 0 = no cap.
+    uint32_t m_fps_cap = 0;
+    qint64   m_min_period_ms = 0;
+    qint64   m_last_emit_ms  = 0;
 };
 
 }  // namespace vncast::qtfb
