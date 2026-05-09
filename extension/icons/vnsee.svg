@@ -1,0 +1,8 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 40 40" width="40" height="40" fill="none">
+  <!-- Monitor frame: thick black outline. Matches AppLoad icon weight (4px). -->
+  <path d="M2 4h36v24H2zm4 4v16h28V8z" fill="black" fill-rule="evenodd"/>
+  <!-- Monitor stand and base. -->
+  <rect x="14" y="30" width="12" height="2" fill="black"/>
+  <rect x="10" y="34" width="20" height="3" fill="black"/>
+</svg>

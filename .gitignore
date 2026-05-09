@@ -1,0 +1,28 @@
+# Build artifacts
+extension/build/
+*.o
+*.so
+*.a
+moc_*.cpp
+moc_*.h
+.qmake.stash
+Makefile
+
+# Generated qmd (source-of-truth is the .qmldiff)
+extension/menu-icon.qmd
+
+# Hashtab pulled from device — device-specific, large, regenerate per device
+extension/hashtab.bin
+
+# Live-extracted qmd snapshots — research artifacts, not source
+extension/menu-icon.live.qmd
+
+# Screenshots from rm-shot — testing artifacts
+screenshots/
+
+# Editor / OS junk
+.vscode/
+.idea/
+*.swp
+.DS_Store
+Thumbs.db

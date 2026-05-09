@@ -1,0 +1,3 @@
+[submodule "vnsee"]
+	path = vnsee
+	url = https://github.com/n4ru/vnsee.git

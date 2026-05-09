@@ -1,0 +1,15 @@
+<RCC>
+  <qresource prefix="/vnsee">
+    <file alias="qml/launcher.qml">qml/launcher.qml</file>
+    <file alias="qml/config.qml">qml/config.qml</file>
+    <file alias="qml/session.qml">qml/session.qml</file>
+    <file alias="qml/VnButton.qml">qml/VnButton.qml</file>
+    <file alias="qml/VnChoiceRow.qml">qml/VnChoiceRow.qml</file>
+    <file alias="qml/ArkChoiceRow.qml">qml/ArkChoiceRow.qml</file>
+    <file alias="qml/SegmentRow.qml">qml/SegmentRow.qml</file>
+    <file alias="qml/OutlineButton.qml">qml/OutlineButton.qml</file>
+    <file alias="qml/FilledButton.qml">qml/FilledButton.qml</file>
+    <file alias="qml/main.qml">qml/main.qml</file>
+    <file alias="icons/vnsee">icons/vnsee.svg</file>
+  </qresource>
+</RCC>
