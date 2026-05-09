@@ -20,14 +20,20 @@ AFFECT /qml/device/view/main/MainView.qml
         INSERT {
             // Width comes from xochitl's own Values singleton — no guessing,
             // no overlap, follows future firmware re-skins automatically.
+            // Once Vncast.sessionStatus == "Receiving frames", we drop the
+            // sidebar margin so the FrameView covers the entire panel
+            // (true fullscreen mirror).
             Loader {
                 id: _vncastView
                 anchors {
                     left: parent.left
-                    leftMargin: Values.navigatorSidebarWidth
+                    leftMargin: Vncast.sessionStatus === "Receiving frames"
+                                ? 0
+                                : Values.navigatorSidebarWidth
                     right: parent.right
                     top: parent.top
                     bottom: parent.bottom
+                    Behavior on leftMargin { NumberAnimation { duration: 150 } }
                 }
                 active: false
                 source: "qrc:/vnsee/qml/launcher.qml"

@@ -1,6 +1,6 @@
-// Active session view: paints whatever vnsee writes into the qtfb shm,
-// with a live status line under the header so the connect handshake is
-// observable. Header / typography mirrors the config page.
+// Active session view. Shows header + status line + Disconnect while we're
+// connecting; once frames are flowing the chrome hides and the FrameView
+// fills the full panel for true fullscreen mirror.
 import QtQuick 2.15
 import net.example.Vncast 1.0
 
@@ -12,11 +12,14 @@ Rectangle {
 
     Component.onCompleted: console.log("[vncast/session.qml] loaded")
 
-    // ---- header ----
+    readonly property bool fullscreen: Vncast.sessionStatus === "Receiving frames"
+
+    // ---- header (visible only while connecting) ----
     Item {
         id: header
         anchors { top: parent.top; left: parent.left; right: parent.right }
         height: 168
+        visible: !root.fullscreen
 
         Text {
             anchors {
@@ -46,7 +49,7 @@ Rectangle {
         }
     }
 
-    // ---- live status line ----
+    // ---- live status line (visible only while connecting) ----
     Text {
         id: statusLine
         anchors {
@@ -57,6 +60,7 @@ Rectangle {
             rightMargin: 80
             topMargin: 8
         }
+        visible: !root.fullscreen
         text: Vncast.sessionStatus || ""
         font.family: "Noto Sans"
         font.pixelSize: 22
@@ -67,20 +71,22 @@ Rectangle {
     }
 
     // ---- frame view ----
+    // While connecting: anchored under header/status with a Disconnect row
+    // below.  Once fullscreen: fills the entire root.
     FrameView {
         id: frameView
         server: Vncast.qtfbServer
         anchors {
-            top: statusLine.bottom
-            left: parent.left
-            right: parent.right
-            bottom: disconnectRow.top
-            margins: 16
-            topMargin: 24
+            top:    root.fullscreen ? parent.top    : statusLine.bottom
+            left:   parent.left
+            right:  parent.right
+            bottom: root.fullscreen ? parent.bottom : disconnectRow.top
+            margins: root.fullscreen ? 0 : 16
+            topMargin: root.fullscreen ? 0 : 24
         }
     }
 
-    // ---- disconnect under the frame view ----
+    // ---- disconnect row (chrome) ----
     Item {
         id: disconnectRow
         anchors {
@@ -91,6 +97,7 @@ Rectangle {
             bottomMargin: 40
         }
         height: 76
+        visible: !root.fullscreen
         FilledButton {
             anchors { right: parent.right; verticalCenter: parent.verticalCenter }
             width: 280
@@ -98,5 +105,21 @@ Rectangle {
             text: "Disconnect"
             onTapped: { Vncast.stopSession(); root.requestClose() }
         }
+    }
+
+    // ---- floating Disconnect (visible only in fullscreen) ----
+    // Small corner control so the user can always exit even when the
+    // FrameView is covering everything.
+    FilledButton {
+        anchors {
+            top:   parent.top
+            right: parent.right
+            margins: 16
+        }
+        visible: root.fullscreen
+        width: 200
+        height: 56
+        text: "Disconnect"
+        onTapped: { Vncast.stopSession(); root.requestClose() }
     }
 }
