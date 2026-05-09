@@ -76,6 +76,11 @@ Rectangle {
     FrameView {
         id: frameView
         server: Vncast.qtfbServer
+        // Orientation: Auto/Landscape rotate the image 90 CW so a landscape
+        // source paints upright when the rMPP is held landscape; Portrait
+        // leaves the source unrotated (it'll letterbox if the source is
+        // landscape, but at least it isn't squished).
+        rotation: Settings.orientation === "portrait" ? 0 : 90
         anchors {
             top:    root.fullscreen ? parent.top    : statusLine.bottom
             left:   parent.left

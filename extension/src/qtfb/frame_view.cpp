@@ -74,23 +74,46 @@ void FrameView::paint(QPainter *p) {
     if (m_img.isNull()) {
         return;   // shouldn't happen, but be safe
     }
-    // The qtfb shm is portrait (1620×2160 on rMPP) and vnsee writes into
-    // it as-received from the VNC server. Most desktops are landscape
-    // (e.g. 2160×1620), so we paint with a 90° clockwise rotation so the
-    // landscape content reads upright when the device is held landscape.
-    // (Once the qtfb protocol ships orientation negotiation, this becomes
-    //  conditional on the source/panel aspect mismatch.)
+
     const QRectF dst = boundingRect();
+
+    // No rotation: scale-to-fit with aspect preserved (letterbox if needed).
+    if (m_rotation == 0) {
+        const QSize  src   = m_img.size();
+        const QSizeF fit   = QSizeF(src).scaled(dst.size(), Qt::KeepAspectRatio);
+        const QRectF tgt(dst.center() - QPointF(fit.width() / 2.0, fit.height() / 2.0),
+                         fit);
+        p->drawImage(tgt, m_img);
+        return;
+    }
+
+    // Rotated: paint into the bounding rect with the source rotated by
+    // m_rotation degrees clockwise around its centre, then aspect-fit.
     p->save();
     p->translate(dst.center());
-    p->rotate(90.0);
-    // After rotating, our drawing space is rotated. The image's aspect
-    // is portrait (W=1620, H=2160) but the source content is landscape,
-    // so swap width/height when computing the target rect.
-    const QRectF rotated(-dst.height() / 2.0, -dst.width() / 2.0,
-                          dst.height(),       dst.width());
-    p->drawImage(rotated, m_img);
+    p->rotate(static_cast<qreal>(m_rotation));
+    const QSize src = m_img.size();
+    QSizeF logical(src);
+    if (m_rotation == 90 || m_rotation == 270) {
+        logical = QSizeF(src.height(), src.width());
+    }
+    const QSizeF fit = logical.scaled(dst.size(), Qt::KeepAspectRatio);
+    QSizeF drawn = fit;
+    if (m_rotation == 90 || m_rotation == 270) {
+        drawn = QSizeF(fit.height(), fit.width());
+    }
+    const QRectF tgt(-drawn.width() / 2.0, -drawn.height() / 2.0,
+                      drawn.width(),        drawn.height());
+    p->drawImage(tgt, m_img);
     p->restore();
+}
+
+void FrameView::setRotation(int deg) {
+    int n = ((deg % 360) + 360) % 360;
+    if (n == m_rotation) return;
+    m_rotation = n;
+    update();
+    emit rotationChanged();
 }
 
 }  // namespace vncast::qtfb
