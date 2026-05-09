@@ -11,6 +11,19 @@ Rectangle {
 
     Component.onCompleted: console.log("[vncast/session.qml] loaded")
 
+    // Backdrop tap = close (Disconnect-equivalent for taps that don't land
+    // on the FrameView or the Disconnect button). Matches config.qml's
+    // "tap outside the form to dismiss" pattern.
+    MouseArea {
+        anchors.fill: parent
+        z: -1
+        onClicked: {
+            console.log("[vncast/session.qml] backdrop tap → stop + close");
+            Vncast.stopSession();
+            root.requestClose();
+        }
+    }
+
     // ---- header ----
     Item {
         id: header
