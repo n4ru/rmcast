@@ -1,8 +1,19 @@
 #include "launcher.h"
 #include "detect.h"
+#include "epdc_hook.h"
 #include <QDebug>
 #include <QStringList>
 #include <QProcessEnvironment>
+
+namespace {
+// Map our user-facing waveform names → EPScreenMode integers. Stub for
+// now; we'll fill in the real numbers once the [vncast/epdc] log shows
+// what xochitl uses. Returning -1 means "pass through, don't force".
+int waveform_to_mode(const QString &w) {
+    Q_UNUSED(w);
+    return -1;
+}
+}
 
 namespace {
 constexpr auto kVnseeBin   = "/home/root/xovi/exthome/appload/vnsee/vnsee";
@@ -61,6 +72,7 @@ bool VncastLauncher::ensureServerStarted() {
         });
         connect(m_server, &vncast::qtfb::Server::clientDisconnected, this, [this]{
             setStatus(QStringLiteral("vnsee disconnected"));
+            vncast::epdc::setActive(false);
         });
         connect(m_server, &vncast::qtfb::Server::frameReady, this,
                 [this](uint32_t seq, int, int, int, int){
@@ -68,6 +80,8 @@ bool VncastLauncher::ensureServerStarted() {
             // we'd flood the QML scene with notify signals.
             if (seq == 0 || seq == 1) {
                 setStatus(QStringLiteral("Receiving frames"));
+                vncast::epdc::setActive(true);
+                vncast::epdc::setForceMode(waveform_to_mode(m_server->waveform()));
             }
         });
     }
