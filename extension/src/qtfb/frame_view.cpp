@@ -74,10 +74,23 @@ void FrameView::paint(QPainter *p) {
     if (m_img.isNull()) {
         return;   // shouldn't happen, but be safe
     }
-    // Scale-to-fit while preserving aspect (most VNC sessions match the
-    // panel exactly, but be safe).
+    // The qtfb shm is portrait (1620×2160 on rMPP) and vnsee writes into
+    // it as-received from the VNC server. Most desktops are landscape
+    // (e.g. 2160×1620), so we paint with a 90° clockwise rotation so the
+    // landscape content reads upright when the device is held landscape.
+    // (Once the qtfb protocol ships orientation negotiation, this becomes
+    //  conditional on the source/panel aspect mismatch.)
     const QRectF dst = boundingRect();
-    p->drawImage(dst, m_img);
+    p->save();
+    p->translate(dst.center());
+    p->rotate(90.0);
+    // After rotating, our drawing space is rotated. The image's aspect
+    // is portrait (W=1620, H=2160) but the source content is landscape,
+    // so swap width/height when computing the target rect.
+    const QRectF rotated(-dst.height() / 2.0, -dst.width() / 2.0,
+                          dst.height(),       dst.width());
+    p->drawImage(rotated, m_img);
+    p->restore();
 }
 
 }  // namespace vncast::qtfb
