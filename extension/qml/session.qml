@@ -1,5 +1,5 @@
-// Placeholder session view — pure QtQuick, native typography.
-// Replaced by FBController + Disconnect once qtfb is vendored.
+// Active session view: paints whatever vnsee writes into the qtfb shm.
+// Header + FrameView + Disconnect.
 import QtQuick 2.15
 import net.example.Vncast 1.0
 
@@ -11,64 +11,69 @@ Rectangle {
 
     Component.onCompleted: console.log("[vncast/session.qml] loaded")
 
-    // EB Garamond title for symmetry with the config page header.
-    Text {
-        id: title
-        anchors {
-            top: parent.top
-            left: parent.left
-            verticalCenter: undefined
-            leftMargin: 64
-            topMargin: 50
-        }
-        text: "Cast"
-        font.family: "EB Garamond"
-        font.pixelSize: 44
-        color: "black"
-    }
-    Rectangle {
-        anchors { left: parent.left; right: parent.right; top: title.bottom; topMargin: 40 }
-        height: 1
-        color: "black"
-        opacity: 0.15
-    }
-
-    // Session status text (replaced by FBController paint once qtfb lands)
-    Column {
-        anchors {
-            top: title.bottom
-            left: parent.left
-            right: parent.right
-            margins: 64
-            topMargin: 80
-        }
-        spacing: 16
+    // ---- header ----
+    Item {
+        id: header
+        anchors { top: parent.top; left: parent.left; right: parent.right }
+        height: 168
         Text {
-            text: "Connecting to " + Settings.host + ":" + Settings.port + "…"
-            font.family: "Noto Sans"
-            font.pixelSize: 24
-            font.weight: Font.DemiBold
+            anchors {
+                left: parent.left
+                bottom: parent.bottom
+                bottomMargin: 24
+                leftMargin: 80
+            }
+            text: "Cast"
+            font.family: "EB Garamond"
+            font.weight: Font.Normal
+            font.pixelSize: 56
             color: "black"
         }
         Text {
-            text: "(qtfb not wired yet — vnsee will exit; tap Disconnect)"
+            anchors {
+                right: parent.right
+                bottom: parent.bottom
+                bottomMargin: 32
+                rightMargin: 80
+            }
+            text: Settings.host + ":" + Settings.port
             font.family: "Noto Sans"
-            font.pixelSize: 18
+            font.pixelSize: 20
             color: "black"
             opacity: 0.6
         }
     }
 
-    // Disconnect under the session content, "Turn off"-styled.
-    FilledButton {
+    // ---- frame view ----
+    FrameView {
+        id: frameView
+        server: Vncast.qtfbServer
+        anchors {
+            top: header.bottom
+            left: parent.left
+            right: parent.right
+            bottom: disconnectRow.top
+            margins: 16
+        }
+    }
+
+    // ---- disconnect under the frame view ----
+    Item {
+        id: disconnectRow
         anchors {
             bottom: parent.bottom
             left: parent.left
             right: parent.right
-            margins: 64
+            margins: 80
+            bottomMargin: 40
         }
-        height: 80
-        text: "Disconnect"
-        onTapped: { Vncast.stopSession(); root.requestClose() }
+        height: 76
+        FilledButton {
+            anchors { right: parent.right; verticalCenter: parent.verticalCenter }
+            width: 280
+            height: 76
+            text: "Disconnect"
+            onTapped: { Vncast.stopSession(); root.requestClose() }
+        }
     }
 }

@@ -1,10 +1,12 @@
 #include "launcher.h"
+#include "detect.h"
 #include <QDebug>
 #include <QStringList>
 #include <QProcessEnvironment>
 
 namespace {
-constexpr auto kVnseeBin = "/home/root/xovi/exthome/appload/vnsee/vnsee";
+constexpr auto kVnseeBin   = "/home/root/xovi/exthome/appload/vnsee/vnsee";
+constexpr auto kQtfbSocket = "/run/vncast.sock";
 }
 
 // ===== overlay routing ===================================================
@@ -37,6 +39,26 @@ void VncastLauncher::setOverlayOpen(bool v) {
     emit overlayOpenChanged();
 }
 
+// ===== qtfb server lifecycle =============================================
+
+bool VncastLauncher::ensureServerStarted() {
+    if (m_server && m_server->shmAddress()) return true;
+
+    if (!m_server) {
+        m_server = new vncast::qtfb::Server(this);
+    }
+    DeviceInfo info;   // reads device class + framebuffer dims at construction
+    if (!m_server->start(&info)) {
+        qWarning() << "[vncast] qtfb::Server failed to start";
+        m_server->deleteLater();
+        m_server = nullptr;
+        emit qtfbServerChanged();
+        return false;
+    }
+    emit qtfbServerChanged();
+    return true;
+}
+
 // ===== session lifecycle =================================================
 
 void VncastLauncher::launchVnsee() {
@@ -52,6 +74,11 @@ void VncastLauncher::startSession(const QVariantMap &cfg) {
         return;
     }
 
+    if (!ensureServerStarted()) {
+        emit sessionEnded(-1);
+        return;
+    }
+
     const QString host        = cfg.value("host", "10.11.99.2").toString();
     const int     port        = cfg.value("port", 5900).toInt();
     const int     fps         = cfg.value("fps", 8).toInt();
@@ -64,8 +91,9 @@ void VncastLauncher::startSession(const QVariantMap &cfg) {
     args << QStringLiteral("--fps") << QString::number(fps);
 
     QProcessEnvironment env = QProcessEnvironment::systemEnvironment();
-    env.insert("VNSEE_ENCODING",    encoding);
-    env.insert("VNCAST_WAVEFORM",   waveform);
+    env.insert("VNCAST_QTFB_SOCKET", QString::fromLatin1(kQtfbSocket));
+    env.insert("VNSEE_ENCODING",     encoding);
+    env.insert("VNCAST_WAVEFORM",    waveform);
     env.insert("VNCAST_ORIENTATION", orientation);
 
     auto *p = new QProcess(this);
@@ -89,7 +117,9 @@ void VncastLauncher::startSession(const QVariantMap &cfg) {
     }
     m_proc = p;
     qInfo().noquote() << "[vncast] startSession: spawned" << kVnseeBin
-                      << "pid=" << p->processId() << "args=" << args.join(' ');
+                      << "pid=" << p->processId()
+                      << "args=" << args.join(' ')
+                      << "qtfb=" << kQtfbSocket;
     emit sessionStarted();
 }
 
@@ -104,4 +134,7 @@ void VncastLauncher::stopSession() {
         m_proc->kill();
         m_proc->waitForFinished(1500);
     }
+    // Leave the qtfb server up — re-Connect can reuse it without a fresh
+    // shm allocation, and the FrameView painting drains cleanly when the
+    // socket closes.
 }
