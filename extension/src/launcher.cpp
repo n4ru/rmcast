@@ -124,10 +124,13 @@ void VncastLauncher::startSession(const QVariantMap &cfg) {
     } else {
         args << QStringLiteral("%1:%2").arg(host).arg(port - 5900);
     }
-    args << QStringLiteral("--fps") << QString::number(fps);
+    // (No --fps yet: vnsee upstream doesn't accept it. Add to vnsee fork
+    // and re-introduce here; for now fps is enforced server-side via the
+    // VNCAST_FPS env var that the future vnsee fork will honor.)
 
     QProcessEnvironment env = QProcessEnvironment::systemEnvironment();
     env.insert("VNCAST_QTFB_SOCKET", QString::fromLatin1(kQtfbSocket));
+    env.insert("VNCAST_FPS",         QString::number(fps));
     env.insert("VNSEE_ENCODING",     encoding);
     env.insert("VNCAST_WAVEFORM",    waveform);
     env.insert("VNCAST_ORIENTATION", orientation);
