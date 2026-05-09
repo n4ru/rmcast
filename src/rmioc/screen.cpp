@@ -1,5 +1,6 @@
 #include "screen.hpp"
 #include "qtfb-client.h"
+#include "vncast_client.hpp"
 #include <cerrno>
 #include <cstdint>
 #include <cstdio>
@@ -39,9 +40,7 @@ int detect_fb_format()
 }
 
 // Optional override: request a custom-shaped qtfb shared-memory buffer instead
-// of the panel-native one. Useful when the VNC server is in landscape (e.g.
-// 2160x1620) and we want qtfb to handle any panel-orientation rotation rather
-// than rotating in vnsee. Read from QTFB_RESOLUTION="WIDTHxHEIGHT".
+// of the panel-native one.
 std::optional<std::tuple<uint16_t, uint16_t>> qtfb_resolution_override()
 {
     const char* env = std::getenv("QTFB_RESOLUTION");
@@ -52,87 +51,102 @@ std::optional<std::tuple<uint16_t, uint16_t>> qtfb_resolution_override()
     std::fprintf(stderr, "QTFB_RESOLUTION override: %dx%d\n", w, h);
     return std::make_tuple(static_cast<uint16_t>(w), static_cast<uint16_t>(h));
 }
+
+bool prefer_vncast()
+{
+    const char* env = std::getenv("VNCAST_QTFB_SOCKET");
+    return env != nullptr && env[0] != '\0';
+}
 }
 
 screen::screen()
-    : conn(qtfb::getIDFromAppload(), detect_fb_format(), qtfb_resolution_override(), false)
 {
-    this->framebuf_fd = this->conn.shmFD;
-
-    if (this->framebuf_fd == -1)
-    {
-        throw std::system_error(
-            errno,
-            std::generic_category(),
-            "(rmioc::screen) Open shared memory framebuffer"
-        );
+    if (prefer_vncast()) {
+        std::fprintf(stderr,
+            "[rmioc::screen] $VNCAST_QTFB_SOCKET set — using vncast backend\n");
+        vncast_         = std::make_unique<vncast::ClientConnection>();
+        using_vncast_   = true;
+    } else {
+        qtfb_ = std::make_unique<qtfb::ClientConnection>(
+            qtfb::getIDFromAppload(),
+            detect_fb_format(),
+            qtfb_resolution_override(),
+            false);
+        if (qtfb_->shmFD == -1) {
+            throw std::system_error(errno, std::generic_category(),
+                "(rmioc::screen) Open shared memory framebuffer");
+        }
     }
-
-    // NOLINTNEXTLINE(cppcoreguidelines-pro-type-reinterpret-cast): Use of C library
-    this->framebuf_ptr = this->conn.shm;
 }
 
-void screen::update(
-    int x, int y, int w, int h, int mode, bool wait)
+void screen::update(int x, int y, int w, int h, int mode, bool /*wait*/)
 {
-    if (this->conn.getRefreshMode() != mode)
-    {
-        this->conn.setRefreshMode(mode);
+    if (using_vncast_) {
+        vncast_->send_partial_update(x, y, w, h);
+    } else {
+        if (qtfb_->getRefreshMode() != mode) qtfb_->setRefreshMode(mode);
+        qtfb_->sendPartialUpdate(x, y, w, h);
     }
-    this->conn.sendPartialUpdate(x, y, w, h);
 }
 
-void screen::update(int mode, bool wait)
+void screen::update(int mode, bool /*wait*/)
 {
-    if (this->conn.getRefreshMode() != mode)
-    {
-        this->conn.setRefreshMode(mode);
+    if (using_vncast_) {
+        vncast_->send_complete_update();
+    } else {
+        if (qtfb_->getRefreshMode() != mode) qtfb_->setRefreshMode(mode);
+        qtfb_->sendCompleteUpdate();
     }
-    this->conn.sendCompleteUpdate();
 }
 
 auto screen::get_data() -> std::uint8_t*
 {
-    return this->framebuf_ptr;
+    return using_vncast_ ? vncast_->shadow_data() : qtfb_->shm;
 }
 
 auto screen::get_xres() const -> int
 {
-    return this->conn.width();
+    return using_vncast_ ? vncast_->width()  : qtfb_->width();
 }
 
 auto screen::get_yres() const -> int
 {
-    return this->conn.height();
+    return using_vncast_ ? vncast_->height() : qtfb_->height();
 }
 
 auto screen::get_bits_per_pixel() const -> unsigned short
 {
-    // NOLINTNEXTLINE(cppcoreguidelines-avoid-magic-numbers)
+    // Both backends present a 16-bit RGB565 surface to the vnsee client
+    // (vncast converts to its native shm format inside send_*_update).
     return 16;
 }
 
 auto screen::get_red_format() const -> component_format
 {
-    // NOLINTNEXTLINE(cppcoreguidelines-avoid-magic-numbers)
     return component_format{/* offset = */ 11, /* length = */ 5};
 }
 
 auto screen::get_green_format() const -> component_format
 {
-    // NOLINTNEXTLINE(cppcoreguidelines-avoid-magic-numbers)
     return component_format{/* offset = */ 5, /* length = */ 6};
 }
 
 auto screen::get_blue_format() const -> component_format
 {
-    // NOLINTNEXTLINE(cppcoreguidelines-avoid-magic-numbers)
     return component_format{/* offset = */ 0, /* length = */ 5};
 }
 
 auto screen::get_connection() -> qtfb::ClientConnection&
 {
-    return this->conn;
+    if (using_vncast_) {
+        // Caller is reaching for AppLoad-specific qtfb features (vkb,
+        // refresh modes, etc.) which we don't have under vncast yet.
+        // Throwing keeps the compile-time signature stable while making
+        // misuse loud.
+        throw std::runtime_error(
+            "rmioc::screen::get_connection: not available under vncast backend");
+    }
+    return *qtfb_;
 }
 
 auto component_format::max() const -> std::uint32_t

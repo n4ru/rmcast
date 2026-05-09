@@ -2,7 +2,9 @@
 #define RMIOC_SCREEN_HPP
 
 #include "qtfb-client.h"
+#include "vncast_client.hpp"
 #include <cstdint>
+#include <memory>
 
 namespace mxcfb
 {
@@ -31,7 +33,10 @@ class screen
 {
 public:
     /**
-     * Connect to the qtfb server.
+     * Connect to a framebuffer server. Picks the vncast qtfb client
+     * (rm-cast) when $VNCAST_QTFB_SOCKET is set, otherwise falls back
+     * to AppLoad's qtfb client. Both expose the same 16-bit RGB565
+     * surface to the rest of vnsee.
      */
     screen();
 
@@ -57,18 +62,14 @@ public:
     auto get_connection() -> qtfb::ClientConnection&;
 
 private:
-    /** File descriptor for the shared memory framebuffer. */
-    int framebuf_fd = -1;
+    /** True when we're talking to vncast (rm-cast) instead of AppLoad qtfb. */
+    bool using_vncast_ = false;
 
-    /** Identifier of the framebuffer message queue. */
-    int msgqueue_id = -1;
+    /** AppLoad qtfb connection. nullptr when using_vncast_ is true. */
+    std::unique_ptr<qtfb::ClientConnection>   qtfb_;
 
-    /** Pointer to the memory-mapped framebuffer. */
-    std::uint8_t* framebuf_ptr = nullptr;
-
-    /* qtfb client connection kept as a member so the connection object
-       outlives the constructor (was previously a local variable). */
-    qtfb::ClientConnection conn;
+    /** vncast qtfb connection. nullptr when using_vncast_ is false. */
+    std::unique_ptr<vncast::ClientConnection> vncast_;
 }; // class screen
 
 } // namespace rmioc

@@ -65,6 +65,7 @@ add_executable(vnsee
     src/orientation_sensor.cpp
     src/rmioc/device.cpp
     src/rmioc/screen.cpp
+    src/rmioc/vncast_client.cpp
 )
 
 configure_file(src/config.hpp.in src/config.hpp)
