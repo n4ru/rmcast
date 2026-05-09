@@ -92,6 +92,15 @@ void ClientConnection::handshake() {
         if (v > 0 && v <= 120) fps_cap = static_cast<uint32_t>(v);
     }
 
+    // VNCAST_WAVEFORM env carries the user's panel-refresh preference.
+    // A2 / DU are fast greyscale waveforms; we coerce frames to grayscale
+    // before writing into the shm so xochitl's renderer picks the fast
+    // EPDC mode automatically (it picks waveform from content, not API).
+    if (const char *env = std::getenv("VNCAST_WAVEFORM")) {
+        m_waveform = env;
+        m_force_grayscale = (m_waveform == "A2" || m_waveform == "DU");
+    }
+
     HelloC2S h{};
     h.header.magic = kMagic;
     h.header.tag   = static_cast<uint32_t>(Tag::HelloC2S);
@@ -164,9 +173,19 @@ void ClientConnection::blit_rect_to_shm(int x, int y, int w, int h) {
                 uint8_t g = (px >>  5) & 0x3F;
                 uint8_t b =  px        & 0x1F;
                 // Expand 5/6-bit components to 8-bit.
-                dp[0] = static_cast<uint8_t>((r << 3) | (r >> 2));
-                dp[1] = static_cast<uint8_t>((g << 2) | (g >> 4));
-                dp[2] = static_cast<uint8_t>((b << 3) | (b >> 2));
+                uint8_t r8 = static_cast<uint8_t>((r << 3) | (r >> 2));
+                uint8_t g8 = static_cast<uint8_t>((g << 2) | (g >> 4));
+                uint8_t b8 = static_cast<uint8_t>((b << 3) | (b >> 2));
+                if (m_force_grayscale) {
+                    // Coerce to grayscale so xochitl's renderer picks the
+                    // fast greyscale EPDC waveform (A2 / DU). Equal R=G=B
+                    // means xochitl's content-classifier sees no chroma.
+                    uint8_t y8 = static_cast<uint8_t>((r8 * 30 + g8 * 59 + b8 * 11) / 100);
+                    r8 = g8 = b8 = y8;
+                }
+                dp[0] = r8;
+                dp[1] = g8;
+                dp[2] = b8;
                 dp[3] = 0xFF;
                 sp += 2; dp += 4;
             }

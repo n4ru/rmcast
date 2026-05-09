@@ -65,6 +65,11 @@ public:
     void send_partial_update(int x, int y, int w, int h);
     void send_complete_update();
 
+    /** Waveform hint from $VNCAST_WAVEFORM ("A2", "DU", "GC16").
+     *  A2 / DU coerce frames to grayscale on the way into the shm so
+     *  xochitl's renderer picks the fast greyscale EPDC waveform. */
+    const std::string &waveform() const { return m_waveform; }
+
 private:
     void handshake();
     void open_shm(const char *name, size_t bytes);
@@ -79,6 +84,8 @@ private:
     uint32_t  m_w = 0, m_h = 0, m_stride = 0, m_bpp = 0, m_format = 0;
     uint32_t  m_seq = 0;
     std::string m_shm_name;
+    std::string m_waveform = "GC16";
+    bool        m_force_grayscale = false;
 };
 
 }  // namespace vncast
