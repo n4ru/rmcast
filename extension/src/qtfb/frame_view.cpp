@@ -50,19 +50,29 @@ void FrameView::onFrameReady(uint32_t seq, int /*x*/, int /*y*/, int /*dw*/, int
 }
 
 void FrameView::paint(QPainter *p) {
-    if (m_img.isNull()) {
-        // Waiting state — placeholder centered text.
+    // Always paint white background first.
+    p->fillRect(boundingRect(), Qt::white);
+
+    // Show a placeholder until a client has actually connected AND sent
+    // at least one frame. (We pre-fill the shm with white at server start,
+    // so m_img alone isn't a useful "have data" signal.)
+    const bool noClient   = !m_server || !m_server->isClientConnected();
+    const bool noFrameYet = (m_lastSeq == 0);
+    if (noClient || noFrameYet) {
         p->setPen(Qt::black);
         QFont f("Noto Sans");
         f.setPixelSize(22);
         p->setFont(f);
-        const QString msg = m_server
-            ? (m_server->isClientConnected()
-                ? QStringLiteral("Connected — waiting for frames…")
-                : QStringLiteral("Waiting for vnsee to connect…"))
-            : QStringLiteral("(no qtfb server)");
+        const QString msg = !m_server
+            ? QStringLiteral("(no qtfb server)")
+            : noClient
+                ? QStringLiteral("Waiting for vnsee to connect…")
+                : QStringLiteral("Connected — waiting for frames…");
         p->drawText(boundingRect(), Qt::AlignCenter, msg);
         return;
+    }
+    if (m_img.isNull()) {
+        return;   // shouldn't happen, but be safe
     }
     // Scale-to-fit while preserving aspect (most VNC sessions match the
     // panel exactly, but be safe).

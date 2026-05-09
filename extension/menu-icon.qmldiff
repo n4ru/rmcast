@@ -41,29 +41,10 @@ AFFECT /qml/device/view/main/MainView.qml
                     }
                 }
             }
-            // Invisible click-through over the sidebar. Only present while
-            // the overlay is open. Observes any tap inside the navigator
-            // and closes the overlay — but uses propagateComposedEvents
-            // so the tap still reaches the underlying SidebarFilterItem
-            // (so tapping Trash both closes Cast AND navigates to Trash).
-            MouseArea {
-                id: _vncastSidebarTap
-                anchors {
-                    left: parent.left
-                    top: parent.top
-                    bottom: parent.bottom
-                }
-                width: Values.navigatorSidebarWidth
-                z: 1001
-                visible: Vncast.overlayOpen
-                enabled: Vncast.overlayOpen
-                propagateComposedEvents: true
-                onPressed: {
-                    console.log("[vncast] sidebar-watcher pressed → closeOverlay");
-                    Vncast.closeOverlay();
-                    mouse.accepted = false;   // let the tap reach the sidebar item
-                }
-            }
+            // (No sidebar tap-watcher — earlier we used one to close Cast
+            // on any sidebar tap, but it was too aggressive: it also
+            // triggered on empty sidebar whitespace, which felt like a
+            // random close. Cast now closes only via Cancel/Disconnect.)
         }
     END TRAVERSE
 END AFFECT
