@@ -1,0 +1,11 @@
+{
+  "name": "VNSee (USB)",
+  "application": "../vnsee/vnsee",
+  "supportsVirtualKeyboard": true,
+  "environment": {
+    "VNSEE_WAVEFORM_MODE": "FASTEST",
+    "VNSEE_ENCODING": "COPYRECT"
+  },
+  "args": ["10.11.99.2", "--orientation", "landscape", "--no-lock-rotation"],
+  "qtfb": true
+}

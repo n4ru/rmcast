@@ -1,0 +1,11 @@
+{
+  "name": "VNSee (Rotated)",
+  "application": "../vnsee/vnsee",
+  "supportsVirtualKeyboard": true,
+  "environment": {
+    "VNSEE_WAVEFORM_MODE": "FASTEST",
+    "VNSEE_ENCODING": "COPYRECT"
+  },
+  "args": ["192.168.1.42", "--orientation", "landscape", "--no-lock-rotation"],
+  "qtfb": true
+}

@@ -3,6 +3,7 @@
 
 #include "event_loop.hpp"
 #include "../orientation.hpp"
+#include "../orientation_sensor.hpp"
 #include "buttons.hpp"
 #include "screen.hpp"
 #include "touch.hpp"
@@ -37,7 +38,8 @@ public:
      * @param device Handle to opened devices.
      */
     client(const char* ip, int port, const char* password, rmioc::device& device,
-           vnsee::Orientation orientation = vnsee::Orientation::Auto);
+           vnsee::Orientation orientation = vnsee::Orientation::Auto,
+           bool auto_rotate = false);
 
     /** Disconnect the VNC client. */
     ~client();
@@ -71,6 +73,9 @@ private:
 
     /** Event handler for the touch device. */
     std::unique_ptr<touch> touch_handler;
+
+    /** Background poller of the rMPP accelerometer, optional. */
+    std::unique_ptr<vnsee::OrientationSensor> orientation_sensor;
 
     /**
      * Send a pointer event to the VNC server.

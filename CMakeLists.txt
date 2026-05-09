@@ -62,6 +62,7 @@ add_executable(vnsee
     src/app/screen.cpp
     src/app/touch.cpp
     src/main.cpp
+    src/orientation_sensor.cpp
     src/rmioc/device.cpp
     src/rmioc/screen.cpp
 )

@@ -59,7 +59,7 @@ namespace app
 using namespace std::placeholders;
 
 client::client(const char* ip, int port, const char* password, rmioc::device& device,
-               vnsee::Orientation orientation)
+               vnsee::Orientation orientation, bool auto_rotate)
 : vnc_client(rfbGetClient(0, 0, 0))
 {
     if (device.get_screen() == nullptr)
@@ -90,6 +90,20 @@ client::client(const char* ip, int port, const char* password, rmioc::device& de
 
     // Initialize the member touch_handler (avoid shadowing a local variable).
     this->touch_handler = std::make_unique<touch>(*this->screen_handler, button_callback);
+
+    if (auto_rotate)
+    {
+        auto* screen_ptr = this->screen_handler.get();
+        this->orientation_sensor = std::make_unique<vnsee::OrientationSensor>(
+            [screen_ptr](vnsee::DeviceOrientation d)
+            {
+                vnsee::Orientation o = vnsee::map_device_to_blit(d);
+                if (o != vnsee::Orientation::Auto && screen_ptr != nullptr)
+                {
+                    screen_ptr->set_effective_orientation(o);
+                }
+            });
+    }
 
     rfbClientLog = vnc_client_log;
     rfbClientErr = vnc_client_log;

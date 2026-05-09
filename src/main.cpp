@@ -4,6 +4,9 @@
 #include "config.hpp"
 #include "rmioc/device.hpp"
 #include <algorithm>
+#include <cstdarg>
+#include <csignal>
+#include <cstdio>
 #include <cstdlib>
 #include <cstring>
 #include <iostream>
@@ -11,9 +14,178 @@
 #include <map>
 #include <stdexcept> // IWYU pragma: keep
 // IWYU pragma: no_include <bits/exception.h>
+#include <memory>
 #include <string>
 #include <utility>
 #include <vector>
+
+namespace
+{
+
+// RAII guard that silences both rotation event sources xochitl listens on:
+//   1. lis2dw12 IIO event subscriptions (devices 2..5: orientation/tap/wk),
+//      via the per-device events enable files. xochitl subscribes via
+//      anon_inode:iio:event.
+//   2. Hall effect input device (folio open/landscape) via
+//      /sys/class/input/event1/device/inhibited (kernel-level input device
+//      inhibit, which blocks event generation at the source).
+//
+// Each prior value is saved on construction and restored on destruction.
+// Signal handlers (SIGINT/TERM/HUP/QUIT) also call restore so a kill never
+// leaves the system stuck "rotation locked".
+class OrientationLockGuard
+{
+public:
+    OrientationLockGuard()
+    {
+        // 1. Silence every IIO event-enable file we can find under the lis2dw12
+        //    devices. We don't know exactly which one xochitl is subscribed to,
+        //    so silence all of them.
+        const char* iio_paths[] = {
+            "/sys/bus/iio/devices/iio:device2/events/in_accel0_gesture_doubletap_en",
+            "/sys/bus/iio/devices/iio:device3/events/in_accel0_gesture_singletap_en",
+            "/sys/bus/iio/devices/iio:device4/events/in_accel0_thresh_rising_en",
+            "/sys/bus/iio/devices/iio:device5/events/in_rot0_change_either_en",
+        };
+        for (const char* p : iio_paths)
+        {
+            int prior = read_int(p);
+            // Try to write 0 unconditionally; some entries may not exist.
+            if (write_int(p, 0))
+            {
+                saved_iio_.push_back({p, prior});
+                log_to_debug_file("Lock: %s prior=%d → 0 (post=%d)\n",
+                                  p, prior, read_int(p));
+            }
+        }
+
+        // 2. Inhibit the Hall effect input device (folio-orientation switch).
+        const char* hall = "/sys/class/input/event1/device/inhibited";
+        int prior_hall = read_int(hall);
+        if (prior_hall >= 0 && write_int(hall, 1))
+        {
+            saved_hall_ = prior_hall;
+            hall_engaged_ = true;
+            log_to_debug_file("Lock: %s prior=%d → 1 (post=%d)\n",
+                              hall, prior_hall, read_int(hall));
+        }
+
+        if (!saved_iio_.empty() || hall_engaged_)
+        {
+            sing_ = this;
+            install_signal_handlers();
+            std::cerr << "Locked rotation: silenced "
+                      << saved_iio_.size() << " IIO events + Hall="
+                      << (hall_engaged_ ? "inhibited" : "skipped") << "\n";
+        }
+    }
+
+    ~OrientationLockGuard() { restore(); }
+
+    OrientationLockGuard(const OrientationLockGuard&) = delete;
+    OrientationLockGuard& operator=(const OrientationLockGuard&) = delete;
+
+    static int read_int(const char* path)
+    {
+        FILE* f = std::fopen(path, "r");
+        if (!f) return -1;
+        int v = -1;
+        if (std::fscanf(f, "%d", &v) != 1) v = -1;
+        std::fclose(f);
+        return v;
+    }
+
+    static bool write_int(const char* path, int v)
+    {
+        FILE* f = std::fopen(path, "w");
+        if (!f) return false;
+        std::fprintf(f, "%d", v);
+        bool ok = (std::fflush(f) == 0);
+        std::fclose(f);
+        return ok;
+    }
+
+    static void log_to_debug_file(const char* fmt, ...)
+    {
+        FILE* f = std::fopen("/tmp/vnsee-debug.log", "a");
+        if (!f) return;
+        va_list ap; va_start(ap, fmt);
+        std::vfprintf(f, fmt, ap);
+        va_end(ap);
+        std::fclose(f);
+    }
+
+private:
+    void restore()
+    {
+        for (const auto& [path, prior] : saved_iio_)
+        {
+            if (prior < 0) continue;
+            write_int(path.c_str(), prior);
+        }
+        saved_iio_.clear();
+
+        if (hall_engaged_)
+        {
+            write_int("/sys/class/input/event1/device/inhibited", saved_hall_);
+            hall_engaged_ = false;
+            log_to_debug_file("Lock: restored Hall inhibit to %d\n", saved_hall_);
+        }
+        if (sing_ == this) sing_ = nullptr;
+    }
+
+    static void signal_handler(int sig)
+    {
+        if (sing_) sing_->restore();
+        std::signal(sig, SIG_DFL);
+        std::raise(sig);
+    }
+
+    void install_signal_handlers()
+    {
+        for (int sig : {SIGINT, SIGTERM, SIGHUP, SIGQUIT})
+        {
+            std::signal(sig, &OrientationLockGuard::signal_handler);
+        }
+    }
+
+    std::vector<std::pair<std::string, int>> saved_iio_;
+    int saved_hall_ = 0;
+    bool hall_engaged_ = false;
+    static OrientationLockGuard* sing_;
+};
+
+OrientationLockGuard* OrientationLockGuard::sing_ = nullptr;
+
+/**
+ * Read /sys/bus/iio/devices/iio:device0/in_accel_*_raw once and decide whether
+ * the device is currently in portrait or landscape orientation. Returns true
+ * for landscape (|x| dominant), false for portrait (|y| dominant or device
+ * lying flat — flat defaults to portrait so the user gets the rMPP's natural
+ * setup if they boot vnsee from a desk).
+ */
+bool initial_device_is_landscape()
+{
+    auto read = [](char axis) -> int {
+        char path[96];
+        std::snprintf(path, sizeof(path),
+            "/sys/bus/iio/devices/iio:device0/in_accel_%c_raw", axis);
+        FILE* f = std::fopen(path, "r");
+        if (!f) return 0;
+        int v = 0;
+        if (std::fscanf(f, "%d", &v) != 1) v = 0;
+        std::fclose(f);
+        return v;
+    };
+    int x = read('x'), y = read('y'), z = read('z');
+    int ax = std::abs(x), ay = std::abs(y), az = std::abs(z);
+    std::cerr << "Initial accel: x=" << x << " y=" << y << " z=" << z << "\n";
+    // Z-dominant means flat → default to portrait.
+    if (az > ax && az > ay) return false;
+    return ax > ay;
+}
+
+} // namespace
 
 /**
  * Print a short help message with usage information.
@@ -36,7 +208,16 @@ auto help(const char* name) -> void
 "  --no-touch           Disable touchscreen interaction.\n"
 "  --orientation MODE   Display rotation. MODE: auto (default), portrait,\n"
 "                       landscape (= landscape-cw), landscape-ccw,\n"
-"                       inverted-landscape, inverted-portrait.\n";
+"                       inverted-landscape, inverted-portrait.\n"
+"  --auto-rotate        Track the rMPP accelerometer and re-rotate fb0 on\n"
+"                       device rotation. Overrides --orientation while\n"
+"                       active. Per-direction overrides via env vars:\n"
+"                         ORIENT_PORTRAIT_UP, ORIENT_PORTRAIT_DOWN,\n"
+"                         ORIENT_LANDSCAPE_LEFT, ORIENT_LANDSCAPE_RIGHT.\n"
+"  --no-lock-rotation   Don't touch the lis2dw12_orientation IIO event source.\n"
+"                       Default: vnsee writes 0 on startup and restores the\n"
+"                       prior value on exit, so xochitl keeps AppLoad's\n"
+"                       window in a fixed orientation while vnsee runs.\n";
 }
 
 /**
@@ -188,6 +369,12 @@ auto main(int argc, const char* argv[]) -> int
         opts.erase("orientation");
     }
 
+    bool auto_rotate = (opts.count("auto-rotate") >= 1);
+    if (auto_rotate) opts.erase("auto-rotate");
+
+    bool lock_rotation = !(opts.count("no-lock-rotation") >= 1);
+    opts.erase("no-lock-rotation");
+
     if (!opts.empty())
     {
         std::cerr << "Unknown options: ";
@@ -213,12 +400,36 @@ auto main(int argc, const char* argv[]) -> int
     // Start the client
     try
     {
+        // RAII: lock xochitl's auto-rotation while vnsee runs, then restore.
+        std::unique_ptr<OrientationLockGuard> rot_lock;
+        if (lock_rotation) rot_lock = std::make_unique<OrientationLockGuard>();
+
+        // Detect the device's current physical orientation and pick a qtfb
+        // buffer shape that matches AppLoad's window. With landscape, ask qtfb
+        // for a 2160x1620 buffer (matches a folio-keyboard-forced landscape
+        // window) and let the source land identity. With portrait, default to
+        // panel-native 1620x2160 + a 90° rotation in vnsee.
+        // User-supplied --orientation always wins.
+        bool start_landscape = initial_device_is_landscape();
+        std::cerr << "Initial physical orientation: "
+                  << (start_landscape ? "landscape" : "portrait") << "\n";
+        if (orientation == vnsee::Orientation::Auto)
+        {
+            if (start_landscape)
+            {
+                if (!std::getenv("QTFB_RESOLUTION"))
+                    setenv("QTFB_RESOLUTION", "2160x1620", 0);
+                orientation = vnsee::Orientation::Portrait; // identity copy
+            }
+            // else: fall through, screen.cpp's auto resolves to LandscapeCW/CCW.
+        }
+
         rmioc::device device = rmioc::device::detect(request);
 
         std::cerr << "Connecting to "
             << server_ip << ":" << server_port << "\n";
 
-        app::client client{server_ip.data(), server_port, password.data(), device, orientation};
+        app::client client{server_ip.data(), server_port, password.data(), device, orientation, auto_rotate};
 
         std::cerr << "Connection established\n";
 

@@ -4,6 +4,7 @@
 #include "event_loop.hpp"
 #include "../orientation.hpp"
 #include "../rmioc/screen.hpp"
+#include <atomic>
 #include <chrono>
 #include <cstdint>
 #include <iosfwd>
@@ -43,7 +44,14 @@ public:
      * Resolved orientation (Auto turns into Portrait or LandscapeCW after
      * the framebuffer is initialized).
      */
-    vnsee::Orientation effective_orientation() const { return effective_; }
+    vnsee::Orientation effective_orientation() const { return effective_.load(); }
+
+    /**
+     * Switch the active blit rotation at runtime (e.g. from the
+     * accelerometer-driven orientation sensor) and trigger a full repaint
+     * so the new orientation lands on the panel immediately.
+     */
+    void set_effective_orientation(vnsee::Orientation o);
 
     /**
      * Force flushing any pending updates to the screen.
@@ -168,8 +176,12 @@ private:
     /** Requested orientation (Auto is resolved on framebuffer init). */
     vnsee::Orientation requested_;
 
-    /** Resolved orientation actually applied during blit. */
-    vnsee::Orientation effective_;
+    /**
+     * Resolved orientation actually applied during blit. Atomic because the
+     * orientation sensor thread can flip it while the main thread reads it
+     * during blit_rotated / transform_input.
+     */
+    std::atomic<vnsee::Orientation> effective_;
 
     /**
      * Intermediate buffer that libvncclient writes into.

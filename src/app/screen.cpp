@@ -4,6 +4,7 @@
 #include <algorithm>
 #include <chrono>
 #include <climits>
+#include <cstdio>
 #include <cstring>
 #include <ostream>
 #include <stdexcept>
@@ -27,9 +28,9 @@ screen::screen(rmioc::screen& device, rfbClient* vnc_client, vnsee::Orientation 
 , standard_waveform_mode(REFRESH_MODE_UI)
 , fast_waveform_mode(REFRESH_MODE_ANIMATE)
 , requested_(orientation)
-, effective_(orientation == vnsee::Orientation::Auto
-             ? vnsee::Orientation::Portrait : orientation)
 {
+    effective_.store(orientation == vnsee::Orientation::Auto
+                     ? vnsee::Orientation::Portrait : orientation);
     bytes_per_pixel_ = (this->device.get_bits_per_pixel() + 7) / 8;
     char *env_waveform = std::getenv("VNSEE_WAVEFORM_MODE");
 
@@ -219,15 +220,17 @@ auto screen::create_framebuf(rfbClient* vnc_client) -> rfbBool
     that->src_width_  = sw;
     that->src_height_ = sh;
 
-    // Resolve Orientation::Auto: pick LandscapeCW when the source is landscape
+    // Resolve Orientation::Auto: pick LandscapeCCW when the source is landscape
     // and the panel is portrait (or vice-versa); otherwise Portrait (1:1).
+    // (Empirically LandscapeCCW matches how the rMPP tends to be held; the
+    // CLI flag overrides this for the other handedness.)
     if (that->requested_ == vnsee::Orientation::Auto)
     {
         bool fb_portrait  = yres > xres;
         bool src_portrait = sh > sw;
-        that->effective_ = (fb_portrait != src_portrait)
-            ? vnsee::Orientation::LandscapeCW
-            : vnsee::Orientation::Portrait;
+        that->effective_.store((fb_portrait != src_portrait)
+            ? vnsee::Orientation::LandscapeCCW
+            : vnsee::Orientation::Portrait);
     }
 
     // Allocate an intermediate buffer at the SOURCE shape so libvncclient
@@ -244,11 +247,23 @@ auto screen::create_framebuf(rfbClient* vnc_client) -> rfbBool
         << "Framebuffer initialized: server=" << sw << 'x' << sh
         << " panel=" << xres << 'x' << yres
         << " orientation="
-        << vnsee::orientation_to_string(that->effective_) << '\n';
+        << vnsee::orientation_to_string(that->effective_.load()) << '\n';
+
+    // Also write to a known file so we can read it after the fact even when
+    // launched by AppLoad (which doesn't surface stderr).
+    if (FILE* dbg = std::fopen("/tmp/vnsee-debug.log", "a"))
+    {
+        std::fprintf(dbg,
+            "Framebuffer initialized: server=%dx%d panel=%dx%d orientation=%s\n",
+            sw, sh, xres, yres,
+            vnsee::orientation_to_string(that->effective_.load()));
+        std::fclose(dbg);
+    }
 
     // Sanity check: warn if the resolved blit won't fully cover the panel.
+    auto eff = that->effective_.load();
     auto fits_panel = [&]() -> bool {
-        switch (that->effective_)
+        switch (eff)
         {
             case vnsee::Orientation::Portrait:
             case vnsee::Orientation::InvertedPortrait:
@@ -265,7 +280,7 @@ auto screen::create_framebuf(rfbClient* vnc_client) -> rfbBool
     {
         std::cerr << "Warning: server "
             << sw << 'x' << sh << " under orientation "
-            << vnsee::orientation_to_string(that->effective_)
+            << vnsee::orientation_to_string(eff)
             << " does not exactly tile fb0 "
             << xres << 'x' << yres
             << " — image will be cropped/letterboxed.\n";
@@ -305,7 +320,7 @@ void screen::blit_rotated(
             p, Bpp);
     };
 
-    switch (effective_)
+    switch (effective_.load())
     {
         case vnsee::Orientation::Portrait:
         case vnsee::Orientation::Auto: // shouldn't happen post-resolve
@@ -412,7 +427,7 @@ void screen::transform_input(int& x, int& y) const
     const int src_w = src_width_;
     const int src_h = src_height_;
 
-    switch (effective_)
+    switch (effective_.load())
     {
         case vnsee::Orientation::Portrait:
         case vnsee::Orientation::Auto:
@@ -479,6 +494,31 @@ void screen::commit_updates(rfbClient* vnc_client, int x, int y, int w, int h)
         that->update_info.w = w;
         that->update_info.h = h;
         that->update_info.has_update = true;
+    }
+}
+
+void screen::set_effective_orientation(vnsee::Orientation o)
+{
+    if (o == vnsee::Orientation::Auto) return; // no-op for Auto sentinel
+    auto prev = effective_.exchange(o);
+    if (prev == o) return;
+
+    std::cerr << "Switching blit orientation: "
+              << vnsee::orientation_to_string(prev) << " → "
+              << vnsee::orientation_to_string(o) << '\n';
+
+    // Mark the entire source as dirty so the next event-loop tick re-blits
+    // the full image with the new rotation. update_info is touched only
+    // from the main thread elsewhere; flipping a bool + writing rect ints
+    // is benign here even without a lock since the worst case is a
+    // single-frame race that resolves on the following repaint cycle.
+    if (src_width_ > 0 && src_height_ > 0)
+    {
+        update_info.x = 0;
+        update_info.y = 0;
+        update_info.w = src_width_;
+        update_info.h = src_height_;
+        update_info.has_update = true;
     }
 }
 

@@ -2,7 +2,11 @@
 #include "qtfb-client.h"
 #include <cerrno>
 #include <cstdint>
+#include <cstdio>
+#include <cstdlib>
+#include <optional>
 #include <system_error>
+#include <tuple>
 #include <utility>
 #include <new>
 #include <fcntl.h>
@@ -33,10 +37,25 @@ int detect_fb_format()
         return FBFMT_RM2FB;
     }
 }
+
+// Optional override: request a custom-shaped qtfb shared-memory buffer instead
+// of the panel-native one. Useful when the VNC server is in landscape (e.g.
+// 2160x1620) and we want qtfb to handle any panel-orientation rotation rather
+// than rotating in vnsee. Read from QTFB_RESOLUTION="WIDTHxHEIGHT".
+std::optional<std::tuple<uint16_t, uint16_t>> qtfb_resolution_override()
+{
+    const char* env = std::getenv("QTFB_RESOLUTION");
+    if (!env) return {};
+    int w = 0, h = 0;
+    if (std::sscanf(env, "%dx%d", &w, &h) != 2) return {};
+    if (w <= 0 || h <= 0 || w > 65535 || h > 65535) return {};
+    std::fprintf(stderr, "QTFB_RESOLUTION override: %dx%d\n", w, h);
+    return std::make_tuple(static_cast<uint16_t>(w), static_cast<uint16_t>(h));
+}
 }
 
 screen::screen()
-    : conn(qtfb::getIDFromAppload(), detect_fb_format(), {}, false)
+    : conn(qtfb::getIDFromAppload(), detect_fb_format(), qtfb_resolution_override(), false)
 {
     this->framebuf_fd = this->conn.shmFD;
 
