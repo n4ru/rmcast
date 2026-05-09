@@ -45,14 +45,13 @@ Rectangle {
         root.requestConnect()
     }
 
-    // Backdrop tap inside the panel: only dismiss the keyboard. Closing
-    // happens via Cancel/Connect or via the sidebar tap-watcher in
-    // MainView's qmldiff.
-    MouseArea {
-        anchors.fill: parent
-        z: -1
-        onClicked: root.dismissKeyboard()
-    }
+    // No backdrop MouseArea — earlier we had one that called
+    // forceActiveFocus(root) to dismiss the keyboard, but that stole
+    // focus from xochitl's navigator and made the sidebar collapse.
+    // Now: taps in empty Cast area are true no-ops. Keyboard dismissal
+    // happens via the per-field activeFocusChanged handlers (focus moves
+    // to another field or the Connect button → keyboard hides) or by
+    // pressing Enter on an alphanumeric field.
 
     // ===== header =====
     // General Settings reference: title ~64px tall text, anchored ~96px from
