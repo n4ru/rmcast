@@ -46,6 +46,15 @@ void FrameView::rebuildImage() {
 
 void FrameView::onFrameReady(uint32_t seq, int /*x*/, int /*y*/, int /*dw*/, int /*dh*/) {
     m_lastSeq = seq;
+    // Log waveform request once per ~120 frames so we can see the setting
+    // propagating without flooding the journal. TODO once we've hooked
+    // EPFramebuffer.sendUpdate via xovi, replace this log with a direct
+    // call into xochitl's EPDC path so A2 / DU / GC16 actually change
+    // the panel refresh waveform.
+    if (m_server && (seq % 120 == 1)) {
+        qInfo().noquote() << "[vncast/frame_view] paint seq=" << seq
+                          << "waveform=" << m_server->waveform();
+    }
     update();
 }
 

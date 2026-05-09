@@ -34,6 +34,13 @@ public:
     int         stride()           const { return m_stride; }
     uint32_t    bpp()              const { return m_bpp; }
 
+    /** Waveform hint set by VncastLauncher from Settings.waveform.
+     *  Strings: "A2", "DU", "GC16". FrameView reads this when painting
+     *  to decide which EPDC waveform to request. (TODO: actually request
+     *  it once we hook EPFramebuffer.sendUpdate via xovi.) */
+    QString    waveform()          const { return m_waveform; }
+    void       setWaveform(const QString &w) { m_waveform = w; }
+
 signals:
     // Fires on every client FRAME message. dirty=(0,0,0,0) means full screen.
     void frameReady(uint32_t seq, int x, int y, int dw, int dh);
@@ -64,6 +71,9 @@ private:
     uint32_t m_fps_cap = 0;
     qint64   m_min_period_ms = 0;
     qint64   m_last_emit_ms  = 0;
+
+    // Waveform hint from VncastLauncher (Settings.waveform).
+    QString  m_waveform = QStringLiteral("A2");
 };
 
 }  // namespace vncast::qtfb

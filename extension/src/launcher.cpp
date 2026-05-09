@@ -109,10 +109,17 @@ void VncastLauncher::startSession(const QVariantMap &cfg) {
 
     const QString host        = cfg.value("host", "10.11.99.2").toString();
     const int     port        = cfg.value("port", 5900).toInt();
-    const int     fps         = cfg.value("fps", 8).toInt();
+    const int     fps         = cfg.value("fps", 0).toInt();
     const QString encoding    = cfg.value("encoding", "COPYRECT").toString();
     const QString waveform    = cfg.value("waveform", "A2").toString();
     const QString orientation = cfg.value("orientation", "auto").toString();
+
+    // Push the waveform hint into the qtfb server so FrameView can pick
+    // up the requested EPDC mode at paint time. (Actual EPDC override
+    // requires hooking xochitl's EPFramebuffer.sendUpdate via xovi,
+    // which lands in a follow-up; for now this just propagates the
+    // setting end-to-end.)
+    if (m_server) m_server->setWaveform(waveform);
 
     // vnsee parses positional arg as host[:display] where display is an
     // offset from base port 5900. Passing "host:5900" double-appends the
