@@ -114,8 +114,16 @@ void VncastLauncher::startSession(const QVariantMap &cfg) {
     const QString waveform    = cfg.value("waveform", "A2").toString();
     const QString orientation = cfg.value("orientation", "auto").toString();
 
+    // vnsee parses positional arg as host[:display] where display is an
+    // offset from base port 5900. Passing "host:5900" double-appends the
+    // port; we pass host alone for default 5900, or "host:N" where N is
+    // the display offset (port-5900) when caller picked a custom port.
     QStringList args;
-    args << QStringLiteral("%1:%2").arg(host).arg(port);
+    if (port == 5900) {
+        args << host;
+    } else {
+        args << QStringLiteral("%1:%2").arg(host).arg(port - 5900);
+    }
     args << QStringLiteral("--fps") << QString::number(fps);
 
     QProcessEnvironment env = QProcessEnvironment::systemEnvironment();
