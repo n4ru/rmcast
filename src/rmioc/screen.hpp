@@ -61,6 +61,14 @@ public:
 
     auto get_connection() -> qtfb::ClientConnection&;
 
+    /**
+     * True when this screen is talking to vncast (rm-cast) instead of
+     * AppLoad qtfb. vncast doesn't (yet) have an input-forwarding side
+     * channel, so callers that pull touch/pen/keyboard events out of
+     * qtfb must skip when this is true.
+     */
+    bool is_vncast() const { return using_vncast_; }
+
 private:
     /** True when we're talking to vncast (rm-cast) instead of AppLoad qtfb. */
     bool using_vncast_ = false;

@@ -135,6 +135,11 @@ client::client(const char* ip, int port, const char* password, rmioc::device& de
 
     // create a pointer to the screen device and capture it by value in the lambda.
     // detach the thread so its destructor won't call std::terminate.
+    // Skip when running under the vncast (rm-cast) backend — vncast does
+    // not yet have an input forwarding side channel; calling get_connection
+    // there would throw, killing the client. Touch/pen/keyboard support
+    // for vncast lands in protocol round 2 (InputS2C tag).
+    if (!device.get_screen()->is_vncast())
     {
         auto* device_ptr = &device;
         auto* screen_ptr = this->screen_handler.get();
