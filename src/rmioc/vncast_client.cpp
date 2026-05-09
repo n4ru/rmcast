@@ -83,12 +83,22 @@ ClientConnection::~ClientConnection() {
 }
 
 void ClientConnection::handshake() {
+    // VNCAST_FPS env carries the user's "Refresh rate" choice from
+    // vncast.so. 0 = uncapped. Server enforces by dropping FRAME emits
+    // that would violate the rate.
+    uint32_t fps_cap = 0;
+    if (const char *env = std::getenv("VNCAST_FPS")) {
+        long v = std::strtol(env, nullptr, 10);
+        if (v > 0 && v <= 120) fps_cap = static_cast<uint32_t>(v);
+    }
+
     HelloC2S h{};
     h.header.magic = kMagic;
     h.header.tag   = static_cast<uint32_t>(Tag::HelloC2S);
     h.client_version = kVersion;
     h.requested_w  = 0;
     h.requested_h  = 0;
+    h.requested_fps = fps_cap;
     send_all(m_fd, &h, sizeof(h));
 
     HelloAckS2C ack{};

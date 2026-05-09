@@ -30,7 +30,7 @@ enum class Tag : uint32_t {
 
 #pragma pack(push, 1)
 struct Header     { uint32_t magic; uint32_t tag; };
-struct HelloC2S   { Header header; uint32_t client_version, requested_w, requested_h; };
+struct HelloC2S   { Header header; uint32_t client_version, requested_w, requested_h, requested_fps; };
 struct HelloAckS2C{
     Header header;
     uint32_t accepted, w, h, stride, bpp, format, shm_name_len;
