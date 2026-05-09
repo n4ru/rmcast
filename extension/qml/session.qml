@@ -1,5 +1,6 @@
-// Active session view: paints whatever vnsee writes into the qtfb shm.
-// Header + FrameView + Disconnect.
+// Active session view: paints whatever vnsee writes into the qtfb shm,
+// with a live status line under the header so the connect handshake is
+// observable. Header / typography mirrors the config page.
 import QtQuick 2.15
 import net.example.Vncast 1.0
 
@@ -11,14 +12,12 @@ Rectangle {
 
     Component.onCompleted: console.log("[vncast/session.qml] loaded")
 
-    // No backdrop tap-to-close here — only Disconnect (and a sidebar
-    // navigate-away) ends the session.
-
     // ---- header ----
     Item {
         id: header
         anchors { top: parent.top; left: parent.left; right: parent.right }
         height: 168
+
         Text {
             anchors {
                 left: parent.left
@@ -47,16 +46,37 @@ Rectangle {
         }
     }
 
+    // ---- live status line ----
+    Text {
+        id: statusLine
+        anchors {
+            top: header.bottom
+            left: parent.left
+            right: parent.right
+            leftMargin: 80
+            rightMargin: 80
+            topMargin: 8
+        }
+        text: Vncast.sessionStatus || ""
+        font.family: "Noto Sans"
+        font.pixelSize: 22
+        font.weight: Font.DemiBold
+        color: "black"
+        opacity: 0.8
+        wrapMode: Text.WordWrap
+    }
+
     // ---- frame view ----
     FrameView {
         id: frameView
         server: Vncast.qtfbServer
         anchors {
-            top: header.bottom
+            top: statusLine.bottom
             left: parent.left
             right: parent.right
             bottom: disconnectRow.top
             margins: 16
+            topMargin: 24
         }
     }
 

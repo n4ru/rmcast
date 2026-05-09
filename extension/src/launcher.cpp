@@ -39,6 +39,13 @@ void VncastLauncher::setOverlayOpen(bool v) {
     emit overlayOpenChanged();
 }
 
+void VncastLauncher::setStatus(const QString &s) {
+    if (m_status == s) return;
+    m_status = s;
+    qInfo().noquote() << "[vncast/status]" << s;
+    emit sessionStatusChanged();
+}
+
 // ===== qtfb server lifecycle =============================================
 
 bool VncastLauncher::ensureServerStarted() {
@@ -46,9 +53,29 @@ bool VncastLauncher::ensureServerStarted() {
 
     if (!m_server) {
         m_server = new vncast::qtfb::Server(this);
+        // Mirror server-side connection events into the human-readable
+        // status line so session.qml can show progress without having to
+        // listen to the Server itself.
+        connect(m_server, &vncast::qtfb::Server::clientConnected, this, [this]{
+            setStatus(QStringLiteral("vnsee connected — waiting for first frame…"));
+        });
+        connect(m_server, &vncast::qtfb::Server::clientDisconnected, this, [this]{
+            setStatus(QStringLiteral("vnsee disconnected"));
+        });
+        connect(m_server, &vncast::qtfb::Server::frameReady, this,
+                [this](uint32_t seq, int, int, int, int){
+            // Only update the status on the very first frame, otherwise
+            // we'd flood the QML scene with notify signals.
+            if (seq == 0 || seq == 1) {
+                setStatus(QStringLiteral("Receiving frames"));
+            }
+        });
     }
-    DeviceInfo info;   // reads device class + framebuffer dims at construction
+    DeviceInfo info;
+    setStatus(QStringLiteral("Allocating shared framebuffer (%1×%2, %3 bpp)…")
+                .arg(info.fbWidth()).arg(info.fbHeight()).arg(info.fbBpp()));
     if (!m_server->start(&info)) {
+        setStatus(QStringLiteral("Framebuffer server failed to start"));
         qWarning() << "[vncast] qtfb::Server failed to start";
         m_server->deleteLater();
         m_server = nullptr;
@@ -74,6 +101,7 @@ void VncastLauncher::startSession(const QVariantMap &cfg) {
         return;
     }
 
+    setStatus(QStringLiteral("Starting framebuffer server…"));
     if (!ensureServerStarted()) {
         emit sessionEnded(-1);
         return;
@@ -96,6 +124,8 @@ void VncastLauncher::startSession(const QVariantMap &cfg) {
     env.insert("VNCAST_WAVEFORM",    waveform);
     env.insert("VNCAST_ORIENTATION", orientation);
 
+    setStatus(QStringLiteral("Spawning vnsee → %1:%2…").arg(host).arg(port));
+
     auto *p = new QProcess(this);
     p->setProgram(QString::fromLatin1(kVnseeBin));
     p->setArguments(args);
@@ -104,18 +134,23 @@ void VncastLauncher::startSession(const QVariantMap &cfg) {
     connect(p, QOverload<int, QProcess::ExitStatus>::of(&QProcess::finished),
             this, [this](int code, QProcess::ExitStatus){
         qInfo() << "[vncast] vnsee exited code=" << code;
+        if (code == 0) setStatus(QStringLiteral("vnsee exited cleanly"));
+        else           setStatus(QStringLiteral("vnsee exited (code %1)").arg(code));
         emit sessionEnded(code);
         if (m_proc) m_proc->deleteLater();
         m_proc.clear();
     });
     p->start();
     if (!p->waitForStarted(2000)) {
+        setStatus(QStringLiteral("vnsee failed to start: %1").arg(p->errorString()));
         qWarning() << "[vncast] vnsee failed to start:" << p->errorString();
         p->deleteLater();
         emit sessionEnded(-1);
         return;
     }
     m_proc = p;
+    setStatus(QStringLiteral("vnsee running (pid %1) — waiting for it to connect…")
+                .arg(p->processId()));
     qInfo().noquote() << "[vncast] startSession: spawned" << kVnseeBin
                       << "pid=" << p->processId()
                       << "args=" << args.join(' ')
@@ -125,16 +160,16 @@ void VncastLauncher::startSession(const QVariantMap &cfg) {
 
 void VncastLauncher::stopSession() {
     if (!m_proc || m_proc->state() == QProcess::NotRunning) {
+        setStatus(QStringLiteral("Disconnected"));
         emit sessionEnded(0);
         return;
     }
+    setStatus(QStringLiteral("Stopping vnsee…"));
     qInfo() << "[vncast] stopSession: terminating pid=" << m_proc->processId();
     m_proc->terminate();
     if (!m_proc->waitForFinished(1500)) {
         m_proc->kill();
         m_proc->waitForFinished(1500);
     }
-    // Leave the qtfb server up — re-Connect can reuse it without a fresh
-    // shm allocation, and the FrameView painting drains cleanly when the
-    // socket closes.
+    setStatus(QStringLiteral("Disconnected"));
 }
