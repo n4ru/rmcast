@@ -1,0 +1,109 @@
+; vncast — sidebar icon + in-scene overlay (settings-style layout).
+;
+;   1. MainView.qml: Loader anchored with leftMargin to clear the
+;      navigator sidebar (matches the native Settings layout).
+;
+;   2. Sidebar.qml AFFECT #1: SidebarFilterItem inserted after
+;      integrationsHandler. `active` is left for xochitl to drive (we are
+;      registered in navigationModel below) — onClicked opens the overlay,
+;      and a Connections watcher closes it when xochitl deselects us
+;      (i.e. user taps Trash / Settings / etc).
+;
+;   3. Sidebar.qml AFFECT #2: REBUILD navigationModel array to add
+;      openVnsee after `integrations` so xochitl's selection model knows
+;      about us.
+
+AFFECT /qml/device/view/main/MainView.qml
+    IMPORT net.example.Vncast 1.0
+    TRAVERSE Background
+        LOCATE AFTER ALL
+        INSERT {
+            // Width comes from xochitl's own Values singleton — no guessing,
+            // no overlap, follows future firmware re-skins automatically.
+            // Once Vncast.sessionStatus == "Receiving frames", we drop the
+            // sidebar margin so the FrameView covers the entire panel
+            // (true fullscreen mirror).
+            Loader {
+                id: _vncastView
+                anchors {
+                    left: parent.left
+                    leftMargin: Vncast.sessionStatus === "Receiving frames"
+                                ? 0
+                                : Values.navigatorSidebarWidth
+                    right: parent.right
+                    top: parent.top
+                    bottom: parent.bottom
+                    Behavior on leftMargin { NumberAnimation { duration: 150 } }
+                }
+                active: false
+                source: "qrc:/vnsee/qml/launcher.qml"
+                z: 1000
+                Component.onCompleted: Vncast.registerOverlayLoader(_vncastView)
+                onLoaded: {
+                    if (item && item.requestClose) {
+                        item.requestClose.connect(function() {
+                            Vncast.closeOverlay();
+                        });
+                    }
+                }
+            }
+            // Invisible click-through over the sidebar. Visible only while
+            // the overlay is open. Any tap on the sidebar (including
+            // empty navigator whitespace) closes Cast; the tap also
+            // propagates so SidebarFilterItems still navigate normally.
+            MouseArea {
+                id: _vncastSidebarTap
+                anchors {
+                    left: parent.left
+                    top: parent.top
+                    bottom: parent.bottom
+                }
+                width: Values.navigatorSidebarWidth
+                z: 1001
+                visible: Vncast.overlayOpen
+                enabled: Vncast.overlayOpen
+                propagateComposedEvents: true
+                onPressed: {
+                    Vncast.closeOverlay();
+                    mouse.accepted = false;   // let the tap reach the sidebar item
+                }
+            }
+        }
+    END TRAVERSE
+END AFFECT
+
+AFFECT /qml/device/view/navigator/Sidebar.qml
+    IMPORT net.example.Vncast 1.0
+    TRAVERSE DeviceKeyboardNavigationHandler > ColumnLayout#filterColumn
+        LOCATE AFTER DeviceKeyboardNavigationHandler#integrationsHandler
+        INSERT {
+            SidebarFilterItem {
+                id: openVnsee
+                objectName: "openVnsee"
+                title: qsTr("Cast")
+                iconSource: "qrc:/vnsee/icons/vnsee"
+                // Visual highlight: WE control via Vncast.overlayOpen so
+                // the icon goes dark the moment the user taps it (we set
+                // overlayOpen before xochitl's nav model reacts).
+                active: Vncast.overlayOpen
+                enabled: true
+                onClicked: {
+                    console.log("[vncast] sidebar tap → openOverlay()");
+                    Vncast.openOverlay();
+                }
+                // (Earlier we tried a polling Timer here — yanked it
+                // because xochitl's nav model never sees openVnsee as
+                // current=us, so the timer fired closeOverlay immediately
+                // every time the user opened the panel.)
+                Layout.preferredHeight: Values.navigatorSidebarItemHeight
+                Layout.preferredWidth: parent.width
+                navigationHandler: root
+            }
+        }
+    END TRAVERSE
+    TRAVERSE DeviceKeyboardNavigationHandler#root
+        REBUILD navigationModel
+            LOCATE AFTER STREAM \integrations\ INSERT STREAM \, openVnsee\
+        END REBUILD
+    END TRAVERSE
+END AFFECT

@@ -1,0 +1,7 @@
+version     0.2.0
+
+depends-on   qt-resource-rebuilder:0.3.0
+
+condition    _ZN3csl10devicelock10DeviceLockC1Ev
+import?      qt-resource-rebuilder$qmldiff_disable_slots_while_processing
+import?      qt-resource-rebuilder$qmldiff_enable_slots_while_processing
