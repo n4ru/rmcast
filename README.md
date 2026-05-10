@@ -16,7 +16,7 @@ This repo is **rmcast**, the rMPP-side tablet client of the rm-cast display-mirr
 
 The **server** lives in a separate repo: [`n4ru/rewire`](https://github.com/n4ru/rewire) — a Windows RFB server using DXGI Desktop Duplication and a custom 1-bit luma encoding (`rcastmono1`).
 
-Local patches against the vendored libvncserver submodule live in `patches/` and are applied at build time by `middleware/scripts/build-vnsee-ferrari.sh`.
+To install on a device, see [middleware/installer/README.md](middleware/installer/README.md). Local patches against the vendored libvncserver submodule live in `patches/` and are applied at build time by `middleware/scripts/build-vnsee-ferrari.sh`.
 
 ## Disclaimer
 

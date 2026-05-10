@@ -39,9 +39,16 @@ Devices supported by the rM-side bits:
 Early WIP. See [docs/architecture.md](docs/architecture.md) for the design and
 [PROTOCOL.md](PROTOCOL.md) for the over-the-wire `rmcast/1` extensions.
 
+## Install
+
+End users grab a release tarball and run `installer/install.sh` on the rMPP.
+Developers build a tarball with `installer/bundle.sh`. See
+[installer/README.md](installer/README.md).
+
 ## Layout
 
 ```
+installer/                   ← end-user installer (bundle.sh / install.sh / uninstall.sh)
 extension/                   ← the xovi extension (vncast.so)
 ├── vncast.xovi              ← descriptor, depends-on qt-resource-rebuilder
 ├── menu-icon.qmldiff        ← source qmldiff that adds Cast to the sidebar
