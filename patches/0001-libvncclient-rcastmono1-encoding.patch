@@ -1,11 +1,17 @@
 diff --git a/src/libvncclient/rfbclient.c b/src/libvncclient/rfbclient.c
-index f6baf641..78d72397 100644
+index f6baf641..30775dd7 100644
 --- a/src/libvncclient/rfbclient.c
 +++ b/src/libvncclient/rfbclient.c
-@@ -1335,6 +1335,11 @@ SetFormatAndEncodings(rfbClient* client)
+@@ -1335,6 +1335,17 @@ SetFormatAndEncodings(rfbClient* client)
  	encs[se->nEncodings++] = rfbClientSwap32IfLE(rfbEncodingCoRRE);
        } else if (strncasecmp(encStr,"rre",encStrLen) == 0) {
  	encs[se->nEncodings++] = rfbClientSwap32IfLE(rfbEncodingRRE);
++      } else if (strncasecmp(encStr,"rcastmono1z",encStrLen) == 0) {
++	/* rcast-host RLE-compressed 1-bit mono (id -791). Wire payload:
++	 *   uint8 threshold, uint32 compressed_len (BE), uint8[compressed_len]
++	 * RLE format: 0x00..0x7F = literal run (ctrl+1 bytes follow),
++	 *             0x80..0xFF = repeat run ((ctrl&0x7F)+2 of next byte). */
++	encs[se->nEncodings++] = rfbClientSwap32IfLE(0xFFFFFCE9); /* -791 */
 +      } else if (strncasecmp(encStr,"rcastmono1",encStrLen) == 0) {
 +	/* rcast-host private 1-bit mono pseudo-encoding (id -789).
 +	 * Decoded inline by HandleRFBServerMessage as a luma threshold byte
@@ -14,22 +20,23 @@ index f6baf641..78d72397 100644
        } else {
  	rfbClientLog("Unknown encoding '%.*s'\n",encStrLen,encStr);
        }
-@@ -2272,6 +2277,55 @@ HandleRFBServerMessage(rfbClient* client)
+@@ -2272,6 +2283,98 @@ HandleRFBServerMessage(rfbClient* client)
          client->SoftCursorLockArea(client, rect.r.x, rect.r.y, rect.r.w, rect.r.h);
        }
  
-+      /* rcast-host private 1-bit mono encoding (id -789, 0xFFFFFCEB).
++      /* rcast-host private 1-bit mono encodings (id -789 raw, -791 RLE).
 +       * Handled with a "do mono1, then jump past the switch to the
 +       * common post-rect cleanup (SoftCursorUnlockScreen +
 +       * GotFrameBufferUpdate)" pattern. We can't add it as a switch
 +       * case here without a giant refactor and we MUST hit the cleanup
 +       * — without GotFrameBufferUpdate firing, vnsee's commit_updates
 +       * never sees the rect and the next IncrementalFBUR is never sent. */
-+      if ((int32_t)rect.encoding == -789) {
++      if ((int32_t)rect.encoding == -789 || (int32_t)rect.encoding == -791) {
 +        int row_bytes = (rect.r.w + 7) / 8;
 +        int bpp = client->format.bitsPerPixel / 8;
++        size_t total_packed = (size_t)row_bytes * (size_t)rect.r.h;
 +        uint8_t threshold;
-+        char *row_packed = NULL;
++        char *all_packed = NULL;
 +        char *row_expanded = NULL;
 +        int row, col, bit, byte;
 +        uint8_t set, v;
@@ -37,13 +44,55 @@ index f6baf641..78d72397 100644
 +        uint16_t pix;
 +        if (!ReadFromRFBServer(client, (char*)&threshold, 1)) return FALSE;
 +        (void)threshold;
-+        row_packed = (char*)malloc(row_bytes);
++        all_packed = (char*)malloc(total_packed);
 +        row_expanded = (char*)malloc((size_t)rect.r.w * bpp);
-+        if (!row_packed || !row_expanded) { free(row_packed); free(row_expanded); return FALSE; }
-+        for (row = 0; row < rect.r.h; ++row) {
-+          if (!ReadFromRFBServer(client, row_packed, row_bytes)) {
-+            free(row_packed); free(row_expanded); return FALSE;
++        if (!all_packed || !row_expanded) { free(all_packed); free(row_expanded); return FALSE; }
++        if ((int32_t)rect.encoding == -791) {
++          /* MONO1Z: read uint32 BE compressed_len, then RLE-decode. */
++          uint8_t lenbuf[4];
++          uint32_t comp_len;
++          char *compbuf;
++          size_t out_pos = 0, in_pos = 0;
++          if (!ReadFromRFBServer(client, (char*)lenbuf, 4)) {
++            free(all_packed); free(row_expanded); return FALSE;
 +          }
++          comp_len = ((uint32_t)lenbuf[0] << 24) | ((uint32_t)lenbuf[1] << 16)
++                   | ((uint32_t)lenbuf[2] << 8)  |  (uint32_t)lenbuf[3];
++          compbuf = (char*)malloc(comp_len);
++          if (!compbuf) { free(all_packed); free(row_expanded); return FALSE; }
++          if (!ReadFromRFBServer(client, compbuf, comp_len)) {
++            free(compbuf); free(all_packed); free(row_expanded); return FALSE;
++          }
++          while (in_pos < comp_len && out_pos < total_packed) {
++            uint8_t ctrl = (uint8_t)compbuf[in_pos++];
++            if (ctrl & 0x80) {
++              /* repeat run: count = (ctrl & 0x7F) + 2 of next byte */
++              size_t cnt = (ctrl & 0x7F) + 2;
++              uint8_t val;
++              if (in_pos >= comp_len) break;
++              val = (uint8_t)compbuf[in_pos++];
++              if (out_pos + cnt > total_packed) cnt = total_packed - out_pos;
++              memset(all_packed + out_pos, val, cnt);
++              out_pos += cnt;
++            } else {
++              /* literal run: ctrl + 1 bytes follow */
++              size_t cnt = (size_t)ctrl + 1;
++              if (in_pos + cnt > comp_len) cnt = comp_len - in_pos;
++              if (out_pos + cnt > total_packed) cnt = total_packed - out_pos;
++              memcpy(all_packed + out_pos, compbuf + in_pos, cnt);
++              in_pos += cnt;
++              out_pos += cnt;
++            }
++          }
++          free(compbuf);
++        } else {
++          /* MONO1: raw packed bits, ceil(w/8)*h bytes total. */
++          if (!ReadFromRFBServer(client, all_packed, total_packed)) {
++            free(all_packed); free(row_expanded); return FALSE;
++          }
++        }
++        for (row = 0; row < rect.r.h; ++row) {
++          char *row_packed = all_packed + (size_t)row * row_bytes;
 +          for (col = 0; col < rect.r.w; ++col) {
 +            bit = 7 - (col & 7);
 +            byte = col >> 3;
@@ -62,7 +111,7 @@ index f6baf641..78d72397 100644
 +          client->GotBitmap(client, (uint8_t*)row_expanded,
 +                           rect.r.x, rect.r.y + row, rect.r.w, 1);
 +        }
-+        free(row_packed);
++        free(all_packed);
 +        free(row_expanded);
 +        goto rect_done;   /* skip the switch; hit cleanup below */
 +      }
@@ -70,7 +119,7 @@ index f6baf641..78d72397 100644
        switch (rect.encoding) {
  
        case rfbEncodingRaw: {
-@@ -2564,6 +2618,7 @@ HandleRFBServerMessage(rfbClient* client)
+@@ -2564,6 +2667,7 @@ HandleRFBServerMessage(rfbClient* client)
        }
  
        /* Now we may discard "soft cursor locks". */

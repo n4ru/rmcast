@@ -2,6 +2,7 @@
 // connecting; once frames are flowing the chrome hides and the FrameView
 // fills the full panel for true fullscreen mirror.
 import QtQuick 2.15
+import QtQuick.Window 2.15   // Screen attached object — orientation
 import net.example.Vncast 1.0
 // xofm.libs.epaper is xochitl's internal QML module that exposes
 // ScreenModeItem — a QQuickItem that tags the panel region it covers
@@ -161,33 +162,29 @@ Rectangle {
     }
 
     // ---- frame view ----
-    // Aspect-aware rotation:
+    // Orientation-aware rotation:
     //   vnsee pre-rotates landscape source into a panel-portrait shm
-    //   (1620×2160). When the user holds the tablet portrait, the QML
-    //   scene matches the shm aspect — show as-is, the cast fills the
-    //   panel. When the user holds the tablet landscape, xochitl rotates
-    //   the QML scene 90° so frameView's visible bounds become
-    //   landscape-shaped. Without compensation the portrait shm gets
-    //   squeezed into the rotated bounds (the "started in landscape"
-    //   bug). Detect the aspect mismatch and rotate the FrameView to
-    //   undo it, so the cast fills regardless of how the device is held.
+    //   (1620×2160). xochitl rotates the QML scene to match the user's
+    //   tablet orientation. To undo that scene rotation here so the cast
+    //   fills the panel right-way-up, we rotate the FrameView by the
+    //   inverse angle.
     //
-    //   The Flip button below adds 180° on top, for the case where the
-    //   detected rotation orients the content the wrong way up. We don't
-    //   try to auto-detect upside-down (CW vs CCW) — too brittle without
-    //   ground-truth orientation data we trust on this firmware.
+    //   We use Screen.orientation directly (rather than aspect inference)
+    //   per user request 2026-05-10: "lets first assume the orientation
+    //   is working." Screen.angleBetween(primary, current) returns the
+    //   degrees Qt rotated for display; FrameView applies the same value
+    //   so the cast lines up with the user's view.
+    //
+    //   Flip toggle adds 180° for the upside-down case (the only thing
+    //   Screen.orientation can't disambiguate is which way the user is
+    //   physically holding the tablet within an axis).
     property bool flipped: false
     FrameView {
         id: frameView
         server: Vncast.qtfbServer
         rotation: {
-            var srv = Vncast.qtfbServer
-            var base = 0
-            if (srv && srv.w > 0 && srv.h > 0 && width > 0 && height > 0) {
-                var shmPortrait  = srv.h > srv.w
-                var viewPortrait = height > width
-                if (shmPortrait !== viewPortrait) base = 90
-            }
+            var base = Screen.angleBetween(Screen.primaryOrientation,
+                                           Screen.orientation)
             return (base + (root.flipped ? 180 : 0)) % 360
         }
         anchors {

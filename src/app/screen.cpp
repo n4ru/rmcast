@@ -128,8 +128,12 @@ screen::screen(rmioc::screen& device, rfbClient* vnc_client, vnsee::Orientation 
         // even when the user only wanted grayscale source coercion.
         const char *prefer_mono = std::getenv("VNCAST_PREFER_MONO1");
         const bool advertise_mono = prefer_mono && prefer_mono[0] == '1';
+        // Order matters — libvncserver passes the SetEncodings list in
+        // the order we give it; the server uses that as priority. We want
+        // the RLE-compressed mono1z (id -791) to win over raw mono1 (-789)
+        // when the server supports both.
         this->vnc_client->appData.encodingsString = advertise_mono
-            ? "rcastmono1 copyrect tight zrle hextile raw"
+            ? "rcastmono1z rcastmono1 copyrect tight zrle hextile raw"
             : "copyrect tight zrle hextile raw";
     }
 
