@@ -58,6 +58,7 @@ bool Server::start(const DeviceInfo *info) {
                       << "fb=" << m_w << "x" << m_h
                       << "stride=" << m_stride << "bpp=" << m_bpp
                       << "shm=" << m_shmName << "(" << m_shmSize << "B)";
+    emit shmChanged();   // QML aspect-aware rotation rebinds against new w/h
     return true;
 }
 

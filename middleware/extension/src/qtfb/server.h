@@ -19,6 +19,9 @@ namespace vncast::qtfb {
 //   shmAddress() / shmSize() / w()/h()/stride() — for FBController consumer
 class Server : public QObject {
     Q_OBJECT
+    Q_PROPERTY(int  w             READ w             NOTIFY shmChanged)
+    Q_PROPERTY(int  h             READ h             NOTIFY shmChanged)
+    Q_PROPERTY(uint bpp           READ bpp           NOTIFY shmChanged)
     Q_PROPERTY(uint lastFrameMode READ lastFrameMode NOTIFY lastFrameModeChanged)
     Q_PROPERTY(int  cursorX       READ cursorX       NOTIFY cursorChanged)
     Q_PROPERTY(int  cursorY       READ cursorY       NOTIFY cursorChanged)
@@ -78,6 +81,9 @@ signals:
     void cursorChanged();
     void clientConnected();
     void clientDisconnected();
+    // Fires when the shm has been (re)allocated — w/h/bpp may have changed.
+    // QML rebinds aspect-aware rotation against the new dimensions.
+    void shmChanged();
 
 private slots:
     void onNewConnection();

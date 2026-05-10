@@ -161,14 +161,35 @@ Rectangle {
     }
 
     // ---- frame view ----
+    // Aspect-aware rotation:
+    //   vnsee pre-rotates landscape source into a panel-portrait shm
+    //   (1620×2160). When the user holds the tablet portrait, the QML
+    //   scene matches the shm aspect — show as-is, the cast fills the
+    //   panel. When the user holds the tablet landscape, xochitl rotates
+    //   the QML scene 90° so frameView's visible bounds become
+    //   landscape-shaped. Without compensation the portrait shm gets
+    //   squeezed into the rotated bounds (the "started in landscape"
+    //   bug). Detect the aspect mismatch and rotate the FrameView to
+    //   undo it, so the cast fills regardless of how the device is held.
+    //
+    //   The Flip button below adds 180° on top, for the case where the
+    //   detected rotation orients the content the wrong way up. We don't
+    //   try to auto-detect upside-down (CW vs CCW) — too brittle without
+    //   ground-truth orientation data we trust on this firmware.
+    property bool flipped: false
     FrameView {
         id: frameView
         server: Vncast.qtfbServer
-        // No paint-side rotation: vnsee's app::screen::blit_rotated
-        // already rotates the source into panel orientation when it
-        // writes into the qtfb shm. Rotating again here would double
-        // up and squash the cast into the upper portion of the panel.
-        rotation: 0
+        rotation: {
+            var srv = Vncast.qtfbServer
+            var base = 0
+            if (srv && srv.w > 0 && srv.h > 0 && width > 0 && height > 0) {
+                var shmPortrait  = srv.h > srv.w
+                var viewPortrait = height > width
+                if (shmPortrait !== viewPortrait) base = 90
+            }
+            return (base + (root.flipped ? 180 : 0)) % 360
+        }
         anchors {
             top:    root.fullscreen ? parent.top    : statusLine.bottom
             left:   parent.left
@@ -250,6 +271,15 @@ Rectangle {
         // session-start path negotiates cleanly with no live race. A
         // dual-buffered shm approach would let us bring the live toggle
         // back, but it's a bigger change than belongs in this iteration.)
+        OutlineButton {
+            width: 110
+            height: 56
+            // Toggles a 180° flip on top of the auto-detected rotation.
+            // Useful when the auto pick is the right axis but upside-down
+            // (e.g. tablet held with the camera at the bottom edge).
+            text: root.flipped ? "Flip ✓" : "Flip"
+            onTapped: root.flipped = !root.flipped
+        }
         OutlineButton {
             width: 110
             height: 56
