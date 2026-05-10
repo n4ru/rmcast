@@ -83,6 +83,9 @@ void FrameView::onFrameReady(uint32_t seq, int x, int y, int dw, int dh) {
 }
 
 void FrameView::paint(QPainter *p) {
+    QElapsedTimer body_timer;
+    body_timer.start();
+
     // Disable smooth (bilinear) scaling and antialiasing — neither buys
     // anything on an e-ink panel and both add measurable per-frame CPU.
     p->setRenderHint(QPainter::SmoothPixmapTransform, false);
@@ -91,11 +94,22 @@ void FrameView::paint(QPainter *p) {
 
     if (!m_layoutValid) recalcLayout();
 
-    // Always fillRect: Qt clips to our update(QRect) so this is bounded
-    // automatically, and trying to skip on "covered" is fragile under
-    // rotation (the rotated image's effective coverage of dst depends
-    // on aspect ratio, not just whether m_drawn fills dst pre-rotation).
-    p->fillRect(boundingRect(), Qt::white);
+    // fillRect — only when needed. The earlier code unconditionally
+    // filled the whole boundingRect on every paint(), which Qt clips
+    // to the active update rect but still costs measurable cycles
+    // (~10-20ms in the body=51-62ms typing-latency tests on rMPP).
+    // Skip the fill when we know drawImage will cover the bounding
+    // rect entirely: rotation 0 + offset (0,0) + drawn matches bounds.
+    // The rotated path keeps the fill (rotated image has visible
+    // letterbox margins that need clearing).
+    const bool image_covers_bounds =
+        (m_rotation == 0)
+        && (m_offset.x() == 0.0 && m_offset.y() == 0.0)
+        && (qFuzzyCompare(m_drawn.width(),  boundingRect().width())
+         && qFuzzyCompare(m_drawn.height(), boundingRect().height()));
+    if (!image_covers_bounds) {
+        p->fillRect(boundingRect(), Qt::white);
+    }
 
     // Show a placeholder until a client has actually connected AND sent
     // at least one frame. (We pre-fill the shm with white at server start,
@@ -138,22 +152,30 @@ void FrameView::paint(QPainter *p) {
         p->restore();
     }
 
-    // Close the latency timer started in onFrameReady. We're measuring
-    // ms between "frame arrived from vnsee" and "drawImage returned" —
-    // the QML/scenegraph half of the pipeline. Doesn't include the EPDC
-    // waveform settle on the panel below, but does cover everything we
-    // can reach from QML.
+    // Close both timers. m_pending_paint_timer measures
+    // frameReady→paint-end (Qt scheduling + paint body); body_timer
+    // measures just the work inside this function. The diff exposes
+    // how much of the 'paint' latency is scenegraph/FBO/scheduling
+    // overhead vs actual painting — which determines whether a switch
+    // to a custom QSGNode would actually help.
+    const quint64 body_us = static_cast<quint64>(body_timer.nsecsElapsed() / 1000);
+    m_paint_body_window_us += body_us;
     if (m_pending_paint) {
         m_lat_window_us += static_cast<quint64>(m_pending_paint_timer.nsecsElapsed() / 1000);
         m_lat_window_count++;
         m_pending_paint = false;
         if (m_lat_window_count >= m_lat_log_every) {
-            const double avg_ms = (double)m_lat_window_us / m_lat_window_count / 1000.0;
+            const double avg_total_ms = (double)m_lat_window_us / m_lat_window_count / 1000.0;
+            const double avg_body_ms  = (double)m_paint_body_window_us / m_lat_window_count / 1000.0;
+            const double avg_sched_ms = avg_total_ms - avg_body_ms;
             qInfo().noquote() << "[vncast/lat] frameReady→paint avg="
-                              << QString::number(avg_ms, 'f', 2) << "ms over "
-                              << m_lat_window_count << "frames";
-            m_lat_window_us    = 0;
-            m_lat_window_count = 0;
+                              << QString::number(avg_total_ms, 'f', 2) << "ms"
+                              << "(body=" << QString::number(avg_body_ms, 'f', 2) << "ms"
+                              << "sched=" << QString::number(avg_sched_ms, 'f', 2) << "ms)"
+                              << "over" << m_lat_window_count << "frames";
+            m_lat_window_us         = 0;
+            m_paint_body_window_us  = 0;
+            m_lat_window_count      = 0;
         }
     }
 }

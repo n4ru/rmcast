@@ -66,15 +66,18 @@ private:
     QSizeF  m_drawn    = QSizeF(0, 0);   // post-aspect-fit, pre-rotation size
     bool    m_layoutValid = false;
 
-    // Client-side latency tracking. m_pending_paint_timer is started in
-    // onFrameReady (frame arrived via shm) and stopped at the end of
-    // paint() — measures the QML/scenegraph half of the pipeline only.
-    // Logs an average every m_lat_log_every frames so we have ground
-    // truth alongside the server's FBUR→FBU stats.
+    // Client-side latency tracking. Two timers, both averaged over
+    // m_lat_log_every frames:
+    //   - "frameReady→paint" (m_pending_paint_timer): wall-clock from
+    //     when the shm frame arrived to when paint() completes. Includes
+    //     scenegraph scheduling, FBO sync, paint() body itself.
+    //   - "paint() body alone" (m_paint_body_us window): just the work
+    //     inside paint(). Diff between the two = scheduling/sync cost.
     QElapsedTimer m_pending_paint_timer;
     bool          m_pending_paint = false;
-    quint64       m_lat_window_us    = 0;
-    quint64       m_lat_window_count = 0;
+    quint64       m_lat_window_us       = 0;   // frameReady→paint
+    quint64       m_paint_body_window_us = 0;  // paint() body only
+    quint64       m_lat_window_count    = 0;
     static constexpr quint64 m_lat_log_every = 30;
 
 protected:
