@@ -5,34 +5,28 @@ the home sidebar, point it at a host, see your desktop on the e-ink panel.
 
 ```
 ┌─────────────────┐                                ┌──────────────────┐
-│ rcast-host      │ ──── RFB + rmcast/1 ────────── │ vnsee fork       │
-│ (Windows)       │                                │ (rM)             │
-│  IDD virtual    │                                │  reads frames    │
-│  display +      │                                │  from a shm      │
-│  tuned VNC      │                                │  region          │
-│  server         │                                │                  │
-└─────────────────┘                                │      qtfb        │
-                                                   │       │          │
-                                                   │       ▼          │
-                                                   │ vncast.so        │
-                                                   │  (xovi ext.)     │
-                                                   │  paints shm      │
-                                                   │  into xochitl    │
-                                                   │  via FBController│
+│ rewire          │ ──── RFB + rcastmono1 ──────── │ rmcast (this     │
+│ (Windows)       │                                │  repo, rM-side)  │
+│  DXGI capture + │                                │                  │
+│  RFB server     │                                │  vnsee process   │
+│                 │                                │   decodes frames │
+│  pen injection  │                                │   → qtfb shm     │
+│  ←── pointer ───┼────────────────────────────────│                  │
+│       events    │                                │  vncast.so       │
+└─────────────────┘                                │   (xovi ext.)    │
+                                                   │   reads shm,     │
+                                                   │   paints into    │
+                                                   │   xochitl, hooks │
+                                                   │   EPDC waveform  │
                                                    └──────────────────┘
 ```
 
-The project ships three things, in this repo and a sibling vnsee fork:
+The project ships in **two repos**:
 
-| Component       | Role                                                   | Status      |
-|-----------------|--------------------------------------------------------|-------------|
-| `vncast.so`     | xovi extension on the rM. Sidebar icon → config UI →   | landed      |
-|                 | spawns vnsee, hosts the qtfb shm, paints the frames    | (UI; qtfb   |
-|                 | into xochitl's QML scene                               |  in flight) |
-| `vnsee` fork    | VNC client on the rM. Backend that writes frames into  | scaffolded  |
-|                 | the qtfb shm instead of `/dev/fb0`                     |             |
-| `rcast-host`    | Windows companion. IDD virtual display + tuned VNC     | not yet     |
-|                 | server speaking the `rmcast/1` pseudo-encoding         |             |
+| Repo                                          | What it holds                                                                                          |
+|-----------------------------------------------|--------------------------------------------------------------------------------------------------------|
+| [`n4ru/rmcast`](https://github.com/n4ru/rmcast) (this) | The rMPP-side tablet client. Two things bundled together: the `vnsee` VNC client process at the repo root, and `vncast.so` (this `middleware/` subdir) — the xovi extension that hosts the qtfb shm and paints frames into xochitl. |
+| [`n4ru/rewire`](https://github.com/n4ru/rewire)        | Windows server. DXGI Desktop Duplication capture, RFB 3.8 server with the custom `rcastmono1` (-789) 1-bit luma encoding, pen injection, orientation sync. |
 
 Devices supported by the rM-side bits:
 
@@ -72,8 +66,10 @@ extension/                   ← the xovi extension (vncast.so)
         ├── server.{h,cpp}   ← Unix socket + shm allocator
         └── fbcontroller.*   ← QML-instantiable item that paints the shm
 
-vnsee/                       ← submodule → n4ru/vnsee
-                              (the actual VNC client; gains a qtfb backend)
+../                          ← repo root: the vnsee VNC client
+                              (this middleware/ folder is inside it)
+../patches/                   ← libvncserver patches applied at build time
+../vendor/libvncserver/       ← upstream as a submodule
 
 scripts/
 ├── build-qmd.sh             ← run qmldiff to convert .qmldiff → .qmd

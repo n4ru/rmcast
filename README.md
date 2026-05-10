@@ -7,13 +7,16 @@
 
 VNSee-QTFB is a [VNC](https://en.wikipedia.org/wiki/Virtual_Network_Computing) client for the [reMarkable tablet](https://remarkable.com) allowing you to use the device as a second screen or view a desktop environment running on your device. This is a fork of [VNSee](https://github.com/matteodelabre/vnsee) that has been ported to QTFB to enhance performance and compatibility, and has many new features and fixes.
 
-## rm-cast (this fork)
+## rmcast (this repo)
 
-This fork is the client half of [rm-cast](middleware/), an rMPP-side display-mirroring stack. The companion pieces live alongside:
+This repo is **rmcast**, the rMPP-side tablet client of the rm-cast display-mirroring stack. It bundles two things:
 
-- `middleware/` — xovi extension (`vncast.so`), qmldiff, qtfb shm protocol, and the cross-build script. Loads into xochitl, draws frames into a QML overlay, hooks the EPDC waveform path.
-- [`n4ru/rewire`](https://github.com/n4ru/rewire) — Windows-side RFB server (DXGI capture, MONO1 1-bit luma encoding, pen injection).
-- `patches/` — local patches applied against the vendored libvncserver submodule at build time (mono1 decoder, etc.). See `middleware/scripts/build-vnsee-ferrari.sh`.
+- The **VNC client** at the repo root (forked from VNSee-QTFB) — receives RFB frames over the wire, decodes them, writes them into a shm region. The compiled binary is still named `vnsee` for now.
+- `middleware/` — the **vncast.so** xovi extension that loads into xochitl, hosts the qtfb shm server, paints the decoded frames into a QML overlay, and hooks the EPDC waveform path. See [middleware/README.md](middleware/README.md).
+
+The **server** lives in a separate repo: [`n4ru/rewire`](https://github.com/n4ru/rewire) — a Windows RFB server using DXGI Desktop Duplication and a custom 1-bit luma encoding (`rcastmono1`).
+
+Local patches against the vendored libvncserver submodule live in `patches/` and are applied at build time by `middleware/scripts/build-vnsee-ferrari.sh`.
 
 ## Disclaimer
 
