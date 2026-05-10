@@ -3,7 +3,15 @@
 # ~/codex/ferrari/5.2.96-dirty.
 set -eo pipefail
 
-REPO_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
+# Layout (after middleware was merged into the vnsee fork):
+#   <vnsee-fork>/                 ← VNSEE_DIR (CMake source root)
+#   <vnsee-fork>/middleware/      ← MIDDLEWARE_DIR (this script lives in middleware/scripts)
+#   <vnsee-fork>/patches/         ← libvncserver patches we apply at build time
+#   <vnsee-fork>/vendor/libvncserver/  ← upstream submodule
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+MIDDLEWARE_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
+VNSEE_DIR="$(cd "$MIDDLEWARE_DIR/.." && pwd)"
+
 SDK_ROOT="${SDK_ROOT:-$HOME/codex/ferrari/5.2.96-dirty}"
 ENV_SETUP="$SDK_ROOT/environment-setup-cortexa53-crypto-remarkable-linux"
 TOOLCHAIN="$SDK_ROOT/sysroots/x86_64-codexsdk-linux/usr/share/cmake/cortexa53-crypto-remarkable-linux-toolchain.cmake"
@@ -11,7 +19,6 @@ TOOLCHAIN="$SDK_ROOT/sysroots/x86_64-codexsdk-linux/usr/share/cmake/cortexa53-cr
 [ -f "$ENV_SETUP" ] || { echo "Missing $ENV_SETUP"; exit 1; }
 [ -f "$TOOLCHAIN" ] || { echo "Missing $TOOLCHAIN"; exit 1; }
 
-VNSEE_DIR="$REPO_ROOT/vnsee"
 BUILD="$VNSEE_DIR/build-ferrari"
 PATCH_DIR="$VNSEE_DIR/patches"
 
