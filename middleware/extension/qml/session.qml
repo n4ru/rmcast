@@ -271,13 +271,14 @@ Rectangle {
         // session-start path negotiates cleanly with no live race. A
         // dual-buffered shm approach would let us bring the live toggle
         // back, but it's a bigger change than belongs in this iteration.)
+        // Flip toggle. Visual state lives in the cast itself (the user
+        // can see whether the image is right-way-up); the button stays a
+        // plain "Flip" so we don't render a missing-glyph box on rMPP's
+        // font. Tap = 180° toggle on top of the aspect-derived rotation.
         OutlineButton {
             width: 110
             height: 56
-            // Toggles a 180° flip on top of the auto-detected rotation.
-            // Useful when the auto pick is the right axis but upside-down
-            // (e.g. tablet held with the camera at the bottom edge).
-            text: root.flipped ? "Flip ✓" : "Flip"
+            text: "Flip"
             onTapped: root.flipped = !root.flipped
         }
         OutlineButton {
