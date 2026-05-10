@@ -31,7 +31,7 @@ Rectangle {
                 left: parent.left
                 bottom: parent.bottom
                 bottomMargin: 24
-                leftMargin: 80
+                leftMargin: 160
             }
             text: "Cast"
             font.family: "EB Garamond"
@@ -44,7 +44,7 @@ Rectangle {
                 right: parent.right
                 bottom: parent.bottom
                 bottomMargin: 32
-                rightMargin: 80
+                rightMargin: 160
             }
             text: Settings.host + ":" + Settings.port
             font.family: "Noto Sans"
@@ -61,8 +61,8 @@ Rectangle {
             top: header.bottom
             left: parent.left
             right: parent.right
-            leftMargin: 80
-            rightMargin: 80
+            leftMargin: 160
+            rightMargin: 160
             topMargin: 8
         }
         visible: !root.fullscreen
@@ -186,7 +186,7 @@ Rectangle {
             bottom: parent.bottom
             left: parent.left
             right: parent.right
-            margins: 80
+            margins: 160
             bottomMargin: 40
         }
         height: 76

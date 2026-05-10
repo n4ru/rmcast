@@ -18,23 +18,14 @@ AFFECT /qml/device/view/main/MainView.qml
     TRAVERSE Background
         LOCATE AFTER ALL
         INSERT {
-            // Width comes from xochitl's own Values singleton — no guessing,
-            // no overlap, follows future firmware re-skins automatically.
-            // Once Vncast.sessionStatus == "Receiving frames", we drop the
-            // sidebar margin so the FrameView covers the entire panel
-            // (true fullscreen mirror).
+            // Cast is fullscreen — the Loader covers the entire panel,
+            // sidebar included, both during config and during the live
+            // session. Exit paths are the Cancel/Disconnect buttons inside
+            // the overlay; the user has no way back to xochitl until they
+            // tap one of those (by design — fewer accidental dismissals).
             Loader {
                 id: _vncastView
-                anchors {
-                    left: parent.left
-                    leftMargin: Vncast.sessionStatus === "Receiving frames"
-                                ? 0
-                                : Values.navigatorSidebarWidth
-                    right: parent.right
-                    top: parent.top
-                    bottom: parent.bottom
-                    Behavior on leftMargin { NumberAnimation { duration: 150 } }
-                }
+                anchors.fill: parent
                 active: false
                 source: "qrc:/vnsee/qml/launcher.qml"
                 z: 1000
@@ -47,27 +38,10 @@ AFFECT /qml/device/view/main/MainView.qml
                     }
                 }
             }
-            // Invisible click-through over the sidebar. Visible only while
-            // the overlay is open. Any tap on the sidebar (including
-            // empty navigator whitespace) closes Cast; the tap also
-            // propagates so SidebarFilterItems still navigate normally.
-            MouseArea {
-                id: _vncastSidebarTap
-                anchors {
-                    left: parent.left
-                    top: parent.top
-                    bottom: parent.bottom
-                }
-                width: Values.navigatorSidebarWidth
-                z: 1001
-                visible: Vncast.overlayOpen
-                enabled: Vncast.overlayOpen
-                propagateComposedEvents: true
-                onPressed: {
-                    Vncast.closeOverlay();
-                    mouse.accepted = false;   // let the tap reach the sidebar item
-                }
-            }
+            // (The previous _vncastSidebarTap MouseArea was removed when
+            // Cast went fullscreen — the sidebar is covered, so tap-on-
+            // sidebar is no longer a meaningful gesture. Cancel/Disconnect
+            // inside the overlay are the only exits.)
         }
     END TRAVERSE
 END AFFECT
