@@ -19,6 +19,12 @@ namespace vncast::qtfb {
 //   shmAddress() / shmSize() / w()/h()/stride() — for FBController consumer
 class Server : public QObject {
     Q_OBJECT
+    Q_PROPERTY(uint lastFrameMode READ lastFrameMode NOTIFY lastFrameModeChanged)
+    Q_PROPERTY(int  cursorX       READ cursorX       NOTIFY cursorChanged)
+    Q_PROPERTY(int  cursorY       READ cursorY       NOTIFY cursorChanged)
+    Q_PROPERTY(int  cursorW       READ cursorW       NOTIFY cursorChanged)
+    Q_PROPERTY(int  cursorH       READ cursorH       NOTIFY cursorChanged)
+    Q_PROPERTY(bool cursorVisible READ cursorVisible NOTIFY cursorChanged)
 public:
     explicit Server(QObject *parent = nullptr);
     ~Server() override;
@@ -41,9 +47,35 @@ public:
     QString    waveform()          const { return m_waveform; }
     void       setWaveform(const QString &w) { m_waveform = w; }
 
+    /** When true, allocate the shm as 1-byte/pixel grayscale (Format=2)
+     *  so vnsee can blit RGB565→8-bit luma directly without expanding to
+     *  RGBA8888. ~75% less memcpy bandwidth on the conversion path.
+     *  Decided at start() time; runtime toggling requires reconnect. */
+    void       setUseGrayscaleShm(bool v) { m_use_grayscale_shm = v; }
+    bool       usingGrayscaleShm() const  { return m_use_grayscale_shm; }
+
+    /** Per-frame mode hint from the most recent FRAME (FrameMode enum).
+     *  0xFFFFFFFF if the client never set one. QML binds against this via
+     *  FrameView so an Epaper.ScreenModeItem can re-tag the area per frame. */
+    uint32_t lastFrameMode() const { return m_last_frame_mode; }
+
+    /** Cursor hotspot reported by the VNC server, in source-image coords.
+     *  QML positions a small fast-mode ScreenModeItem at this point so
+     *  the cursor area always refreshes quickly even when surrounding
+     *  content needs slow GC16. (-1, -1) until first update. */
+    int  cursorX() const       { return m_cursor_x; }
+    int  cursorY() const       { return m_cursor_y; }
+    int  cursorW() const       { return m_cursor_w; }
+    int  cursorH() const       { return m_cursor_h; }
+    bool cursorVisible() const { return m_cursor_visible; }
+
 signals:
     // Fires on every client FRAME message. dirty=(0,0,0,0) means full screen.
     void frameReady(uint32_t seq, int x, int y, int dw, int dh);
+    // Fires when the per-frame mode hint changed value (so QML doesn't
+    // resubscribe / re-bind on every frame, only on actual transitions).
+    void lastFrameModeChanged();
+    void cursorChanged();
     void clientConnected();
     void clientDisconnected();
 
@@ -74,6 +106,17 @@ private:
 
     // Waveform hint from VncastLauncher (Settings.waveform).
     QString  m_waveform = QStringLiteral("A2");
+
+    // When true, shm is allocated as 1-byte/pixel grayscale (format=2).
+    bool     m_use_grayscale_shm = false;
+
+    // Per-frame mode hint from the most recent FRAME (FrameMode enum int).
+    uint32_t m_last_frame_mode = 0xFFFFFFFFu;
+
+    // Latest cursor hotspot from CursorC2S messages.
+    int  m_cursor_x = -1, m_cursor_y = -1;
+    int  m_cursor_w = 0,  m_cursor_h = 0;
+    bool m_cursor_visible = false;
 };
 
 }  // namespace vncast::qtfb

@@ -22,4 +22,4 @@ HEADERS += \
     src/qtfb/protocol.h \
     src/qtfb/frame_view.h
 
-LIBS += -lrt
+LIBS += -lrt -ldl

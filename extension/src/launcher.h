@@ -21,7 +21,7 @@ class VncastLauncher : public QObject {
     Q_PROPERTY(vncast::qtfb::Server* qtfbServer READ qtfbServer NOTIFY qtfbServerChanged)
     Q_PROPERTY(QString sessionStatus   READ sessionStatus  NOTIFY sessionStatusChanged)
 public:
-    explicit VncastLauncher(QObject *parent = nullptr) : QObject(parent) {}
+    explicit VncastLauncher(QObject *parent = nullptr);
 
     bool overlayOpen() const                 { return m_overlayOpen; }
     vncast::qtfb::Server *qtfbServer() const { return m_server; }
@@ -51,7 +51,7 @@ signals:
 
 private:
     void setOverlayOpen(bool v);
-    bool ensureServerStarted();
+    bool ensureServerStarted(bool grayscale);
     void setStatus(const QString &s);
 
     QPointer<QObject>      m_overlay;

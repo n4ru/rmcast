@@ -14,15 +14,29 @@
 namespace vncast::qtfb {
 
 Server::Server(QObject *parent) : QObject(parent) {}
-Server::~Server() { stop(); }
+Server::~Server() {
+    // Destructor only runs after deleteLater(), by which time the
+    // launcher has reassigned the QML qtfbServer pointer to nullptr (or
+    // a new server) and FrameView has dropped its m_img reference. Now
+    // safe to unmap the shm.
+    stop();
+    freeShm();
+}
 
 bool Server::start(const DeviceInfo *info) {
     if (m_server) return true;
     m_w      = info->fbWidth();
     m_h      = info->fbHeight();
-    m_stride = info->fbStride();
-    m_bpp    = info->fbBpp();
-    m_format = (m_bpp == 16) ? 0 : 1;
+    if (m_use_grayscale_shm) {
+        // 1 byte/pixel grayscale8 — 75% less memcpy than RGBA8888.
+        m_bpp    = 8;
+        m_stride = m_w;
+        m_format = 2;  // Grayscale8
+    } else {
+        m_stride = info->fbStride();
+        m_bpp    = info->fbBpp();
+        m_format = (m_bpp == 16) ? 0 : 1;
+    }
 
     const size_t bytes = static_cast<size_t>(m_stride) * m_h;
     if (!allocShm(bytes)) {
@@ -48,9 +62,13 @@ bool Server::start(const DeviceInfo *info) {
 }
 
 void Server::stop() {
+    // NOTE: do NOT freeShm() here. FrameView::m_img aliases this memory
+    // and the scenegraph render thread may dereference it concurrently.
+    // The shm is unmapped in the destructor instead, which only runs
+    // after deleteLater() — by which point the launcher has emitted
+    // qtfbServerChanged(nullptr) and FrameView has cleared m_img.
     if (m_socket) { m_socket->disconnectFromServer(); m_socket->deleteLater(); m_socket.clear(); }
     if (m_server) { m_server->close(); m_server->deleteLater(); m_server = nullptr; }
-    freeShm();
 }
 
 bool Server::allocShm(size_t bytes) {
@@ -131,7 +149,28 @@ void Server::onSocketReadyRead() {
                 }
                 m_last_emit_ms = now_ms;
             }
+            if (msg.mode != m_last_frame_mode) {
+                m_last_frame_mode = msg.mode;
+                emit lastFrameModeChanged();
+            }
             emit frameReady(msg.seq, msg.x, msg.y, msg.w, msg.h);
+            break;
+        }
+        case Tag::CursorC2S: {
+            if (m_socket->bytesAvailable() < (qint64)sizeof(CursorC2S)) return;
+            CursorC2S msg{};
+            m_socket->read(reinterpret_cast<char *>(&msg), sizeof(msg));
+            const bool changed =
+                msg.x != m_cursor_x || msg.y != m_cursor_y ||
+                static_cast<int>(msg.w) != m_cursor_w ||
+                static_cast<int>(msg.h) != m_cursor_h ||
+                static_cast<bool>(msg.visible) != m_cursor_visible;
+            m_cursor_x = msg.x;
+            m_cursor_y = msg.y;
+            m_cursor_w = static_cast<int>(msg.w);
+            m_cursor_h = static_cast<int>(msg.h);
+            m_cursor_visible = msg.visible != 0;
+            if (changed) emit cursorChanged();
             break;
         }
         case Tag::Bye: {
@@ -156,6 +195,12 @@ void Server::handleHello(const HelloC2S &msg) {
     m_fps_cap       = msg.requested_fps;
     m_min_period_ms = (m_fps_cap == 0) ? 0 : (1000 / m_fps_cap);
     m_last_emit_ms  = 0;
+    m_cursor_x = m_cursor_y = -1;
+    m_cursor_w = m_cursor_h = 0;
+    m_cursor_visible = false;
+    m_last_frame_mode = 0xFFFFFFFFu;
+    emit cursorChanged();
+    emit lastFrameModeChanged();
 
     HelloAckS2C ack{};
     ack.header.magic = MAGIC;

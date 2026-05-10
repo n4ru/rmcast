@@ -23,6 +23,8 @@ Rectangle {
     property string waveform:    Settings.waveform
     property string orientation: Settings.orientation
     property string encoding:    Settings.encoding
+    property bool   grayscale:   Settings.grayscale
+    property bool   mono1:       Settings.mono1
     property bool   advanced:    false
 
     Component.onCompleted: console.log("[vncast/config.qml] loaded; host=" + host)
@@ -40,6 +42,8 @@ Rectangle {
         Settings.waveform    = root.waveform
         Settings.orientation = root.orientation
         Settings.encoding    = root.encoding
+        Settings.grayscale   = root.grayscale
+        Settings.mono1       = root.mono1
         Settings.save()
         Vncast.startSession(Settings.asMap())
         root.requestConnect()
@@ -130,6 +134,81 @@ Rectangle {
             }
         }
 
+        // ---- Fast B&W toggle (top-level, above Advanced) ----
+        // The most-used knob — surfaced at the top of the form. Switches
+        // panel waveform to A2 + coerces source pixels to grayscale for
+        // ~3-4× faster refresh. Best for text/terminal/document scrolling.
+        Item {
+            width: parent.width
+            height: 64
+            Text {
+                anchors { left: parent.left; verticalCenter: parent.verticalCenter }
+                text: "Fast B&W mode"
+                font.family: "Noto Sans"
+                font.pixelSize: 22
+                color: "black"
+            }
+            Rectangle {
+                anchors { right: parent.right; verticalCenter: parent.verticalCenter }
+                width: 76
+                height: 38
+                radius: 19
+                color: root.grayscale ? "black" : "white"
+                border { color: "black"; width: 2 }
+                Rectangle {
+                    width: 28
+                    height: 28
+                    radius: 14
+                    color: root.grayscale ? "white" : "black"
+                    anchors.verticalCenter: parent.verticalCenter
+                    x: root.grayscale ? parent.width - width - 5 : 5
+                    Behavior on x { NumberAnimation { duration: 120 } }
+                }
+                MouseArea {
+                    anchors.fill: parent
+                    onClicked: { root.grayscale = !root.grayscale; root.dismissKeyboard() }
+                }
+            }
+        }
+
+        // ---- Mono (1-bit encoding) toggle ----
+        // Distinct from Fast B&W: this controls whether vnsee advertises
+        // the rcastmono1 pseudo-encoding so an rcast-host server sends
+        // 1 bit/pixel on the wire. Pair with Fast B&W for true B&W cast;
+        // turn off to keep grayscale levels even on rcast-host.
+        Item {
+            width: parent.width
+            height: 64
+            Text {
+                anchors { left: parent.left; verticalCenter: parent.verticalCenter }
+                text: "1-bit mono encoding"
+                font.family: "Noto Sans"
+                font.pixelSize: 22
+                color: "black"
+            }
+            Rectangle {
+                anchors { right: parent.right; verticalCenter: parent.verticalCenter }
+                width: 76
+                height: 38
+                radius: 19
+                color: root.mono1 ? "black" : "white"
+                border { color: "black"; width: 2 }
+                Rectangle {
+                    width: 28
+                    height: 28
+                    radius: 14
+                    color: root.mono1 ? "white" : "black"
+                    anchors.verticalCenter: parent.verticalCenter
+                    x: root.mono1 ? parent.width - width - 5 : 5
+                    Behavior on x { NumberAnimation { duration: 120 } }
+                }
+                MouseArea {
+                    anchors.fill: parent
+                    onClicked: { root.mono1 = !root.mono1; root.dismissKeyboard() }
+                }
+            }
+        }
+
         // ---- Advanced toggle (no card) ----
         Item {
             width: parent.width
@@ -213,65 +292,10 @@ Rectangle {
                 }
                 Rectangle { width: parent.width - 32; x: 16; height: 1; color: "black"; opacity: 0.12 }
 
-                // Refresh rate row (server enforces this cap via the
-                // qtfb HELLO handshake — frames over this rate get dropped).
-                Column {
-                    width: parent.width - 48
-                    x: 24
-                    spacing: 10
-                    topPadding: 14
-                    bottomPadding: 14
-                    Text {
-                        text: "Refresh rate"
-                        font.family: "Noto Sans"
-                        font.pixelSize: 19
-                        color: "black"
-                    }
-                    SegmentRow {
-                        width: parent.width
-                        height: 48
-                        options: ["4", "8", "12", "free"]
-                        current: root.fps === 4  ? "4"
-                               : root.fps === 8  ? "8"
-                               : root.fps === 12 ? "12"
-                               : "free"
-                        onPicked: function(v) {
-                            root.fps = v === "free" ? 0 : parseInt(v)
-                            root.dismissKeyboard()
-                        }
-                    }
-                }
-                Rectangle { width: parent.width - 32; x: 16; height: 1; color: "black"; opacity: 0.12 }
-
-                // Waveform row
-                Column {
-                    width: parent.width - 48
-                    x: 24
-                    spacing: 10
-                    topPadding: 14
-                    bottomPadding: 14
-                    Text {
-                        text: "Waveform"
-                        font.family: "Noto Sans"
-                        font.pixelSize: 19
-                        color: "black"
-                    }
-                    SegmentRow {
-                        width: parent.width
-                        height: 48
-                        options: ["A2 fast", "DU flicker", "GC16 sharp"]
-                        current: root.waveform === "A2"   ? "A2 fast"
-                               : root.waveform === "DU"   ? "DU flicker"
-                               : "GC16 sharp"
-                        onPicked: function(v) {
-                            root.waveform = v === "A2 fast" ? "A2"
-                                          : v === "DU flicker" ? "DU"
-                                          : "GC16"
-                            root.dismissKeyboard()
-                        }
-                    }
-                }
-                Rectangle { width: parent.width - 32; x: 16; height: 1; color: "black"; opacity: 0.12 }
+                // (Refresh rate, Waveform, and Encoding selectors removed.
+                // For LAN/USB-tether use the defaults — uncapped fps,
+                // copyrect, A2 — are the right answer; live tuning is
+                // mostly noise compared to the Fast B&W / Pen toggles.)
 
                 // Orientation row
                 Column {
@@ -295,32 +319,6 @@ Rectangle {
                                : "Auto"
                         onPicked: function(v) {
                             root.orientation = v.toLowerCase()
-                            root.dismissKeyboard()
-                        }
-                    }
-                }
-                Rectangle { width: parent.width - 32; x: 16; height: 1; color: "black"; opacity: 0.12 }
-
-                // Encoding row
-                Column {
-                    width: parent.width - 48
-                    x: 24
-                    spacing: 10
-                    topPadding: 14
-                    bottomPadding: 14
-                    Text {
-                        text: "Encoding"
-                        font.family: "Noto Sans"
-                        font.pixelSize: 19
-                        color: "black"
-                    }
-                    SegmentRow {
-                        width: parent.width
-                        height: 48
-                        options: ["COPYRECT", "TIGHT", "ZRLE"]
-                        current: root.encoding
-                        onPicked: function(v) {
-                            root.encoding = v
                             root.dismissKeyboard()
                         }
                     }

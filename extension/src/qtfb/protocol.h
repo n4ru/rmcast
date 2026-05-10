@@ -24,6 +24,7 @@ enum class Tag : uint32_t {
     HelloAckS2C = 0x02,  // server → client, replies with shm + geom
     Frame       = 0x03,  // client → server, "frame N is ready in shm"
     InputS2C    = 0x04,  // server → client, touch/pen event (round 2)
+    CursorC2S   = 0x05,  // client → server, cursor position changed
     Bye         = 0xFF,  // either direction, orderly shutdown
 };
 
@@ -53,10 +54,24 @@ struct HelloAckS2C {
     char     shm_name[64];       // /vncast-XXXXX, NUL-padded
 };
 
+// Suggested EPDC waveform for this frame, picked by vnsee from heuristics
+// over the dirty region. Server forwards this to QML so a parent
+// Epaper.ScreenModeItem can re-tag the panel area per frame. Mirrors
+// xochitl's own EPScreenModeItem::Mode enum (Pen=0 .. UI=4).
+enum class FrameMode : uint32_t {
+    Auto      = 0xFFFFFFFFu,  // sentinel — caller didn't classify, leave as-is
+    Pen       = 0,
+    Mono      = 1,
+    Animation = 2,            // ~A2 — tiny dirty area / cursor
+    Content   = 3,            // ~GC16 — large dirty area / page change
+    UI        = 4,            // ~GLR16 — fallback default
+};
+
 struct Frame {
     Header header;
     uint32_t seq;                // monotonic frame id
     uint32_t x, y, w, h;         // dirty rect; (0,0,0,0) → full screen
+    uint32_t mode;               // FrameMode hint; 0xFFFFFFFF = unset
 };
 
 struct InputS2C {
@@ -72,6 +87,17 @@ struct InputS2C {
 struct Bye {
     Header header;
     uint32_t reason;   // 0 = normal, 1 = error, 2 = protocol violation
+};
+
+// Authoritative cursor position from the VNC server. Sent whenever the
+// server reports a cursor-position pseudo-encoding update OR whenever a
+// FRAME is about to land — so QML always has a fresh hotspot to render
+// the per-region "cursor area" ScreenModeItem at.
+struct CursorC2S {
+    Header   header;
+    int32_t  x, y;     // hotspot in source-image coords
+    uint32_t w, h;     // cursor sprite size (typical 24x24..32x32)
+    uint32_t visible;  // 1 = on screen, 0 = hidden
 };
 #pragma pack(pop)
 

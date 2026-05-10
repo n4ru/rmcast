@@ -26,3 +26,10 @@ screenshots/
 *.swp
 .DS_Store
 Thumbs.db
+
+# rcast-host has its own repo (n4ru/rewire); kept here as a sibling worktree
+rcast-host/
+
+# Older predecessor touch scripts, superseded by *-uinput.py
+scripts/rmpp-tap.py
+scripts/rmpp-touch.py

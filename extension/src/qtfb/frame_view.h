@@ -19,6 +19,9 @@ class FrameView : public QQuickPaintedItem {
     Q_OBJECT
     Q_PROPERTY(Server* server READ server WRITE setServer NOTIFY serverChanged)
     // 0 = none, 90/180/270 = clockwise rotation applied at paint time.
+    // (Tried scenegraph-level rotation via QQuickItem::rotation; broke
+    // the layout when combined with anchors.centerIn + width/height
+    // swap on a QQuickPaintedItem. In-paint rotation it is.)
     Q_PROPERTY(int rotation READ rotation WRITE setRotation NOTIFY rotationChanged)
 public:
     explicit FrameView(QQuickItem *parent = nullptr);
@@ -40,10 +43,30 @@ private slots:
     void rebuildImage();
 
 private:
+    // Recompute the cached layout (scale, offset, draw rect) from the
+    // current bounding rect, source size, and rotation. Cheap; called
+    // only on geometry/source changes, not per-frame.
+    void recalcLayout();
+
+    // Map a source-image rect to the FrameView's local coordinate system,
+    // accounting for current rotation, scale, and aspect-fit offset.
+    // Used to ask Qt scenegraph to only re-upload that subregion to the
+    // backing texture instead of the whole frame.
+    QRect mapSourceRect(int sx, int sy, int sw, int sh) const;
+
     QPointer<Server> m_server;
     QImage           m_img;     // aliases shm bytes; lifetime tied to server
     uint32_t         m_lastSeq = 0;
-    int              m_rotation = 0;   // QML-controlled paint rotation
+    int              m_rotation = 0;
+
+    // Cached layout — invalidated on geometryChange / rebuildImage / setRotation.
+    qreal   m_scale    = 1.0;
+    QPointF m_offset   = QPointF(0, 0);
+    QSizeF  m_drawn    = QSizeF(0, 0);   // post-aspect-fit, pre-rotation size
+    bool    m_layoutValid = false;
+
+protected:
+    void geometryChange(const QRectF &newGeometry, const QRectF &oldGeometry) override;
 };
 
 }  // namespace vncast::qtfb

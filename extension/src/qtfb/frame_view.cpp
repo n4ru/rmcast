@@ -29,13 +29,16 @@ void FrameView::setServer(Server *s) {
 }
 
 void FrameView::rebuildImage() {
+    m_layoutValid = false;
     if (!m_server || !m_server->shmAddress() || m_server->w() <= 0 || m_server->h() <= 0) {
         m_img = QImage();
         return;
     }
-    const QImage::Format fmt = (m_server->bpp() == 16)
-        ? QImage::Format_Grayscale16
-        : QImage::Format_RGBA8888;
+    const int bpp = m_server->bpp();
+    QImage::Format fmt;
+    if (bpp == 8)        fmt = QImage::Format_Grayscale8;
+    else if (bpp == 16)  fmt = QImage::Format_Grayscale16;
+    else                 fmt = QImage::Format_RGBA8888;
     m_img = QImage(const_cast<uchar *>(m_server->shmAddress()),
                    m_server->w(), m_server->h(), m_server->stride(), fmt);
     qInfo().noquote() << "[vncast/frame_view] aliased shm:"
@@ -44,22 +47,44 @@ void FrameView::rebuildImage() {
                       << "bpp=" << m_server->bpp();
 }
 
-void FrameView::onFrameReady(uint32_t seq, int /*x*/, int /*y*/, int /*dw*/, int /*dh*/) {
+void FrameView::onFrameReady(uint32_t seq, int x, int y, int dw, int dh) {
+    const bool firstFrame = (m_lastSeq == 0);
     m_lastSeq = seq;
-    // Log waveform request once per ~120 frames so we can see the setting
-    // propagating without flooding the journal. TODO once we've hooked
-    // EPFramebuffer.sendUpdate via xovi, replace this log with a direct
-    // call into xochitl's EPDC path so A2 / DU / GC16 actually change
-    // the panel refresh waveform.
     if (m_server && (seq % 120 == 1)) {
         qInfo().noquote() << "[vncast/frame_view] paint seq=" << seq
                           << "waveform=" << m_server->waveform();
     }
-    update();
+
+    // First frame and full-screen sentinels (0,0,0,0): repaint everything.
+    // Otherwise only invalidate the mapped subregion so Qt scenegraph
+    // re-uploads ~just-the-cursor-area instead of the whole 14 MB texture.
+    if (firstFrame || (dw <= 0 || dh <= 0)) {
+        update();
+        return;
+    }
+    QRect r = mapSourceRect(x, y, dw, dh);
+    // Inflate by 1px to absorb any rounding error.
+    r.adjust(-1, -1, 1, 1);
+    if (r.isEmpty()) {
+        update();
+        return;
+    }
+    update(r);
 }
 
 void FrameView::paint(QPainter *p) {
-    // Always paint white background first.
+    // Disable smooth (bilinear) scaling and antialiasing — neither buys
+    // anything on an e-ink panel and both add measurable per-frame CPU.
+    p->setRenderHint(QPainter::SmoothPixmapTransform, false);
+    p->setRenderHint(QPainter::Antialiasing,         false);
+    p->setRenderHint(QPainter::TextAntialiasing,     false);
+
+    if (!m_layoutValid) recalcLayout();
+
+    // Always fillRect: Qt clips to our update(QRect) so this is bounded
+    // automatically, and trying to skip on "covered" is fragile under
+    // rotation (the rotated image's effective coverage of dst depends
+    // on aspect ratio, not just whether m_drawn fills dst pre-rotation).
     p->fillRect(boundingRect(), Qt::white);
 
     // Show a placeholder until a client has actually connected AND sent
@@ -84,45 +109,102 @@ void FrameView::paint(QPainter *p) {
         return;   // shouldn't happen, but be safe
     }
 
-    const QRectF dst = boundingRect();
-
-    // No rotation: scale-to-fit with aspect preserved (letterbox if needed).
     if (m_rotation == 0) {
-        const QSize  src   = m_img.size();
-        const QSizeF fit   = QSizeF(src).scaled(dst.size(), Qt::KeepAspectRatio);
-        const QRectF tgt(dst.center() - QPointF(fit.width() / 2.0, fit.height() / 2.0),
-                         fit);
-        p->drawImage(tgt, m_img);
+        // Pass an explicit source rect = full image. Avoids Qt's
+        // "consider transparent border" path some painters take when no
+        // src rect is given. Targeted blit only — Qt clips to the update
+        // rect we passed.
+        const QRectF tgt(m_offset, m_drawn);
+        const QRectF src(0, 0, m_img.width(), m_img.height());
+        p->drawImage(tgt, m_img, src);
         return;
     }
 
-    // Rotated: paint into the bounding rect with the source rotated by
-    // m_rotation degrees clockwise around its centre, then aspect-fit.
+    // Rotated path: m_drawn already accounts for w/h swap.
     p->save();
-    p->translate(dst.center());
+    p->translate(boundingRect().center());
     p->rotate(static_cast<qreal>(m_rotation));
-    const QSize src = m_img.size();
-    QSizeF logical(src);
-    if (m_rotation == 90 || m_rotation == 270) {
-        logical = QSizeF(src.height(), src.width());
-    }
-    const QSizeF fit = logical.scaled(dst.size(), Qt::KeepAspectRatio);
-    QSizeF drawn = fit;
-    if (m_rotation == 90 || m_rotation == 270) {
-        drawn = QSizeF(fit.height(), fit.width());
-    }
-    const QRectF tgt(-drawn.width() / 2.0, -drawn.height() / 2.0,
-                      drawn.width(),        drawn.height());
+    const QRectF tgt(-m_drawn.width() / 2.0, -m_drawn.height() / 2.0,
+                      m_drawn.width(),        m_drawn.height());
     p->drawImage(tgt, m_img);
     p->restore();
+}
+
+void FrameView::recalcLayout() {
+    m_layoutValid = true;
+    if (m_img.isNull()) {
+        m_scale = 1.0; m_offset = QPointF(0, 0); m_drawn = QSizeF(0, 0);
+        return;
+    }
+    const QSizeF dst = boundingRect().size();
+    QSizeF src(m_img.size());
+    if (m_rotation == 90 || m_rotation == 270) {
+        src = QSizeF(m_img.height(), m_img.width());
+    }
+    const QSizeF fit = src.scaled(dst, Qt::KeepAspectRatio);
+    m_scale = (src.width() > 0) ? (fit.width() / src.width()) : 1.0;
+    if (m_rotation == 90 || m_rotation == 270) {
+        m_drawn = QSizeF(fit.height(), fit.width()); // pre-rotation drawn size
+    } else {
+        m_drawn = fit;
+    }
+    m_offset = QPointF((dst.width()  - fit.width())  / 2.0,
+                       (dst.height() - fit.height()) / 2.0);
+}
+
+QRect FrameView::mapSourceRect(int sx, int sy, int sw, int sh) const {
+    // Map a source-image rect into FrameView's local (paint) coords.
+    // Must match exactly what paint() draws — otherwise update(QRect)
+    // invalidates the wrong area and the actual changed pixels never get
+    // repainted, leaving stale "missing chunk" patches.
+    if (m_img.isNull() || m_scale <= 0) return QRect();
+    const QRectF dst = boundingRect();
+    const qreal s = m_scale;
+
+    if (m_rotation == 0) {
+        const QPointF tl = m_offset + QPointF(sx * s, sy * s);
+        return QRectF(tl, QSizeF(sw * s, sh * s)).toAlignedRect();
+    }
+
+    // For rotated paths, the visual cast occupies a post-rotation rect.
+    // m_drawn is stored as PRE-rotation size, so swap for 90/270.
+    const qreal post_w = (m_rotation == 90 || m_rotation == 270)
+                         ? m_drawn.height() : m_drawn.width();
+    const qreal post_h = (m_rotation == 90 || m_rotation == 270)
+                         ? m_drawn.width()  : m_drawn.height();
+    const qreal left = (dst.width()  - post_w) / 2.0;
+    const qreal top  = (dst.height() - post_h) / 2.0;
+
+    if (m_rotation == 90) {
+        // (sx,sy) → (left + post_w - (sy+sh)*s, top + sx*s); w=sh*s, h=sw*s
+        return QRectF(left + post_w - (sy + sh) * s,
+                      top + sx * s,
+                      sh * s, sw * s).toAlignedRect();
+    }
+    if (m_rotation == 270) {
+        // (sx,sy) → (left + sy*s, top + post_h - (sx+sw)*s); w=sh*s, h=sw*s
+        return QRectF(left + sy * s,
+                      top + post_h - (sx + sw) * s,
+                      sh * s, sw * s).toAlignedRect();
+    }
+    // 180: (sx,sy) → (left + post_w - (sx+sw)*s, top + post_h - (sy+sh)*s)
+    return QRectF(left + post_w - (sx + sw) * s,
+                  top + post_h - (sy + sh) * s,
+                  sw * s, sh * s).toAlignedRect();
 }
 
 void FrameView::setRotation(int deg) {
     int n = ((deg % 360) + 360) % 360;
     if (n == m_rotation) return;
     m_rotation = n;
+    m_layoutValid = false;
     update();
     emit rotationChanged();
+}
+
+void FrameView::geometryChange(const QRectF &newGeometry, const QRectF &oldGeometry) {
+    QQuickPaintedItem::geometryChange(newGeometry, oldGeometry);
+    m_layoutValid = false;
 }
 
 }  // namespace vncast::qtfb

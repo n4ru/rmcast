@@ -29,6 +29,9 @@ void Settings::load() {
     if (o.contains("waveform"))    m_waveform    = o.value("waveform").toString(m_waveform);
     if (o.contains("orientation")) m_orientation = o.value("orientation").toString(m_orientation);
     if (o.contains("encoding"))    m_encoding    = o.value("encoding").toString(m_encoding);
+    if (o.contains("grayscale"))   m_grayscale   = o.value("grayscale").toBool(m_grayscale);
+    if (o.contains("mono1"))       m_mono1       = o.value("mono1").toBool(m_mono1);
+    if (o.contains("compressLevel")) m_compressLevel = o.value("compressLevel").toInt(m_compressLevel);
     qInfo() << "[vncast/settings] loaded" << configPath();
 }
 
@@ -40,6 +43,9 @@ void Settings::save() {
     o["waveform"]    = m_waveform;
     o["orientation"] = m_orientation;
     o["encoding"]    = m_encoding;
+    o["grayscale"]   = m_grayscale;
+    o["mono1"]       = m_mono1;
+    o["compressLevel"] = m_compressLevel;
     QFile f(configPath());
     if (!f.open(QIODevice::WriteOnly | QIODevice::Truncate)) {
         qWarning() << "[vncast/settings] cannot write" << configPath();
@@ -57,6 +63,9 @@ QVariantMap Settings::asMap() const {
         {"waveform",    m_waveform},
         {"orientation", m_orientation},
         {"encoding",    m_encoding},
+        {"grayscale",   m_grayscale},
+        {"mono1",       m_mono1},
+        {"compressLevel", m_compressLevel},
     };
 }
 
@@ -66,3 +75,6 @@ void Settings::setFps(int v)                    { if (v == m_fps) return;       
 void Settings::setWaveform(const QString &v)    { if (v == m_waveform) return;    m_waveform = v;    emit changed(); }
 void Settings::setOrientation(const QString &v) { if (v == m_orientation) return; m_orientation = v; emit changed(); }
 void Settings::setEncoding(const QString &v)    { if (v == m_encoding) return;    m_encoding = v;    emit changed(); }
+void Settings::setGrayscale(bool v)             { if (v == m_grayscale) return;   m_grayscale = v;   emit changed(); }
+void Settings::setMono1(bool v)                 { if (v == m_mono1) return;       m_mono1 = v;       emit changed(); }
+void Settings::setCompressLevel(int v)          { if (v == m_compressLevel) return; m_compressLevel = qBound(0, v, 9); emit changed(); }
