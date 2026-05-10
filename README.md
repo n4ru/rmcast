@@ -7,6 +7,14 @@
 
 VNSee-QTFB is a [VNC](https://en.wikipedia.org/wiki/Virtual_Network_Computing) client for the [reMarkable tablet](https://remarkable.com) allowing you to use the device as a second screen or view a desktop environment running on your device. This is a fork of [VNSee](https://github.com/matteodelabre/vnsee) that has been ported to QTFB to enhance performance and compatibility, and has many new features and fixes.
 
+## rm-cast (this fork)
+
+This fork is the client half of [rm-cast](middleware/), an rMPP-side display-mirroring stack. The companion pieces live alongside:
+
+- `middleware/` — xovi extension (`vncast.so`), qmldiff, qtfb shm protocol, and the cross-build script. Loads into xochitl, draws frames into a QML overlay, hooks the EPDC waveform path.
+- [`n4ru/rewire`](https://github.com/n4ru/rewire) — Windows-side RFB server (DXGI capture, MONO1 1-bit luma encoding, pen injection).
+- `patches/` — local patches applied against the vendored libvncserver submodule at build time (mono1 decoder, etc.). See `middleware/scripts/build-vnsee-ferrari.sh`.
+
 ## Disclaimer
 
 This project is not affiliated with, nor endorsed by, [reMarkable AS](https://remarkable.com/).\
