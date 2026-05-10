@@ -25,6 +25,7 @@ enum class Tag : uint32_t {
     HelloAckS2C = 0x02,
     Frame       = 0x03,
     InputS2C    = 0x04,
+    CursorC2S   = 0x05,
     Bye         = 0xFF,
 };
 
@@ -36,7 +37,19 @@ struct HelloAckS2C{
     uint32_t accepted, w, h, stride, bpp, format, shm_name_len;
     char     shm_name[64];
 };
-struct Frame      { Header header; uint32_t seq, x, y, w, h; };
+struct Frame      { Header header; uint32_t seq, x, y, w, h, mode; };
+struct CursorC2S  { Header header; int32_t x, y; uint32_t w, h, visible; };
+
+// Mirrors xochitl's EPScreenModeItem::Mode and rm-cast's FrameMode enum.
+// Picked per-frame by classify_frame_mode() based on the dirty area.
+enum class FrameMode : uint32_t {
+    Auto      = 0xFFFFFFFFu,
+    Pen       = 0,
+    Mono      = 1,
+    Animation = 2,
+    Content   = 3,
+    UI        = 4,
+};
 struct Bye        { Header header; uint32_t reason; };
 #pragma pack(pop)
 
@@ -65,6 +78,17 @@ public:
     void send_partial_update(int x, int y, int w, int h);
     void send_complete_update();
 
+    // Push the cursor hotspot to the server out-of-band of FRAME messages,
+    // so QML can render a small fast-mode tag at the cursor regardless of
+    // whether the framebuffer changed. Coalesces: only sends if changed.
+    void send_cursor_pos(int x, int y, int w, int h, bool visible);
+
+    // Heuristic: pick a per-frame waveform mode hint based on the dirty
+    // area (in shadow coordinates). Tiny rect → Animation (A2, fast for
+    // cursor / single chars), huge rect → Content (GC16, page change),
+    // medium → Mono. Returned to caller so it can be embedded in the FRAME.
+    FrameMode classify_frame_mode(int w, int h) const;
+
     /** Waveform hint from $VNCAST_WAVEFORM ("A2", "DU", "GC16").
      *  A2 / DU coerce frames to grayscale on the way into the shm so
      *  xochitl's renderer picks the fast greyscale EPDC waveform. */
@@ -86,6 +110,11 @@ private:
     std::string m_shm_name;
     std::string m_waveform = "GC16";
     bool        m_force_grayscale = false;
+
+    // Cached cursor state for coalescing.
+    int      m_cursor_x = -1, m_cursor_y = -1;
+    uint32_t m_cursor_w = 0,  m_cursor_h = 0;
+    bool     m_cursor_visible = false;
 };
 
 }  // namespace vncast

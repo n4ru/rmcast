@@ -5,7 +5,9 @@
 #include <chrono>
 #include <climits>
 #include <cstdio>
+#include <cstdlib>
 #include <cstring>
+#include <iostream>
 #include <ostream>
 #include <stdexcept>
 #include <rfb/rfbclient.h>
@@ -24,7 +26,7 @@ screen::screen(rmioc::screen& device, rfbClient* vnc_client, vnsee::Orientation 
 , vnc_client(vnc_client)
 , repaint_mode(repaint_modes::standard)
 , standard_repaint_delay(500)
-, fast_repaint_delay(50) // 15 FPS
+, fast_repaint_delay(16) // ~60 FPS — desktop mirror is always dynamic
 , standard_waveform_mode(REFRESH_MODE_UI)
 , fast_waveform_mode(REFRESH_MODE_ANIMATE)
 , requested_(orientation)
@@ -48,6 +50,15 @@ screen::screen(rmioc::screen& device, rfbClient* vnc_client, vnsee::Orientation 
             standard_repaint_delay = chrono::milliseconds(1000);
             standard_waveform_mode = REFRESH_MODE_CONTENT;
         }
+    }
+
+    // The vncast backend has no local input thread to flip us into "fast"
+    // (touch input is what triggers fast mode in the appload-target setup).
+    // Without this, vncast sessions stay at standard's 500ms cadence — i.e.
+    // 2 fps — even when the desktop is dynamic. Force fast at construction
+    // so the desktop mirror runs at the higher cadence by default.
+    if (this->device.is_vncast()) {
+        this->repaint_mode = repaint_modes::fast;
     }
 
     rfbClientSetClientData(
@@ -102,12 +113,47 @@ screen::screen(rmioc::screen& device, rfbClient* vnc_client, vnsee::Orientation 
             this->vnc_client->appData.encodingsString = "rre";
         }
     } else {
-        this->vnc_client->appData.encodingsString = "copyrect";
+        // Default for vncast on LAN/USB-tether. Order is the priority
+        // hint sent to the server; TightVNC will pick Tight first, which
+        // (with our compressLevel=0 + JPEG-off settings below) does
+        // smart palette/RLE encoding without the expensive zlib pass.
+        // That's ~10x smaller than Raw on screen content for ~free CPU,
+        // a big win when wire is the limit (USB-tether ≈ 12 MB/s).
+        // The trailing fallbacks let weird servers that don't speak Tight
+        // still negotiate something other than full Raw.
+        // Default encoding list. rcastmono1 is only advertised when the
+        // user opted in via Settings → Mono (1-bit) toggle, since on a
+        // non-rcast server it's an unknown ID (still safe — the server
+        // just ignores it) but on rcast-host it would force B&W output
+        // even when the user only wanted grayscale source coercion.
+        const char *prefer_mono = std::getenv("VNCAST_PREFER_MONO1");
+        const bool advertise_mono = prefer_mono && prefer_mono[0] == '1';
+        this->vnc_client->appData.encodingsString = advertise_mono
+            ? "rcastmono1 copyrect tight zrle hextile raw"
+            : "copyrect tight zrle hextile raw";
     }
 
     this->vnc_client->appData.useRemoteCursor = true;
+
+    // Default compressLevel=0 (no zlib pass on Tight payloads). User can
+    // override with $VNCAST_COMPRESS_LEVEL=0..9 to A/B different sweet
+    // spots and compare against the rolling-average frame time we log
+    // below. Higher = smaller wire bytes, slower decode CPU. On LAN/USB
+    // 0 typically wins; on a slow link 6+ might.
+    int compress = 0;
+    if (const char *env = std::getenv("VNCAST_COMPRESS_LEVEL")) {
+        long v = std::strtol(env, nullptr, 10);
+        if (v >= 0 && v <= 9) compress = static_cast<int>(v);
+    }
+    this->vnc_client->appData.compressLevel = compress;
+    this->vnc_client->appData.qualityLevel  = -1;
+    this->vnc_client->appData.enableJPEG    = false;
+    std::cerr << "[vnsee/tuning] compressLevel=" << compress
+              << " encodings=" << this->vnc_client->appData.encodingsString << '\n';
+
     this->vnc_client->MallocFrameBuffer = screen::create_framebuf;
     this->vnc_client->GotFrameBufferUpdate = screen::commit_updates;
+    this->vnc_client->HandleCursorPos     = screen::handle_cursor_pos;
 }
 
 void screen::repaint()
@@ -222,8 +268,8 @@ auto screen::create_framebuf(rfbClient* vnc_client) -> rfbBool
 
     // Resolve Orientation::Auto: pick LandscapeCCW when the source is landscape
     // and the panel is portrait (or vice-versa); otherwise Portrait (1:1).
-    // (Empirically LandscapeCCW matches how the rMPP tends to be held; the
-    // CLI flag overrides this for the other handedness.)
+    // (Was CW briefly while testing the static gradient stub; with real
+    // DXGI content the user holds the rMPP such that CCW is upright.)
     if (that->requested_ == vnsee::Orientation::Auto)
     {
         bool fb_portrait  = yres > xres;
@@ -459,8 +505,47 @@ void screen::transform_input(int& x, int& y) const
     }
 }
 
+rfbBool screen::handle_cursor_pos(rfbClient* vnc_client, int x, int y)
+{
+    auto* that = reinterpret_cast<screen*>(
+        rfbClientGetClientData(vnc_client, screen::instance_tag));
+    if (that) {
+        // Pass through to backend; vncast will dedupe + forward to QML.
+        // appload path is a no-op.
+        that->device.update_cursor(x, y, /*visible=*/true);
+    }
+    return TRUE;
+}
+
 void screen::commit_updates(rfbClient* vnc_client, int x, int y, int w, int h)
 {
+    // Rolling-average timing across recent rect commits. Lets the user
+    // compare $VNCAST_COMPRESS_LEVEL choices against ms-per-frame numbers
+    // in the journal without having to rebuild. Tracks total commits in
+    // this batch and the wall-clock between consecutive batch starts.
+    static auto s_last_batch_start = std::chrono::steady_clock::now();
+    static int  s_rects_in_batch = 0;
+    static long s_pixels_in_batch = 0;
+    static int  s_batches = 0;
+    auto now = std::chrono::steady_clock::now();
+    auto delta_ms = std::chrono::duration_cast<std::chrono::microseconds>(
+        now - s_last_batch_start).count();
+    s_rects_in_batch++;
+    s_pixels_in_batch += static_cast<long>(w) * h;
+    s_batches++;
+    if (s_batches >= 60) {
+        std::cerr << "[vnsee/timing] last 60 commits: "
+                  << "elapsed=" << (delta_ms / 1000.0) << "ms "
+                  << "rects=" << s_rects_in_batch << ' '
+                  << "px=" << s_pixels_in_batch << ' '
+                  << "avg_ms_per_commit=" << (delta_ms / 1000.0 / 60.0)
+                  << '\n';
+        s_last_batch_start = now;
+        s_rects_in_batch = 0;
+        s_pixels_in_batch = 0;
+        s_batches = 0;
+    }
+
     // NOLINTNEXTLINE(cppcoreguidelines-pro-type-reinterpret-cast)
     auto* that = reinterpret_cast<screen*>(
         rfbClientGetClientData(
@@ -474,18 +559,53 @@ void screen::commit_updates(rfbClient* vnc_client, int x, int y, int w, int h)
 
     if (that->update_info.has_update)
     {
-        // Merge new rectangle with existing one
-        int left_x = std::min(x, that->update_info.x);
-        int top_y = std::min(y, that->update_info.y);
-        int right_x = std::max(x + w,
-                that->update_info.x + that->update_info.w);
-        int bottom_y = std::max(y + h,
-                that->update_info.y + that->update_info.h);
+        // Threshold-based merge (inspired by pl-semiotics/rM-vnc-server's
+        // multi-rect damage tracking). Naive bbox merging blows up when
+        // two small rects arrive far apart — e.g. a cursor moving across
+        // the screen produces a single FRAME covering the entire diagonal,
+        // which our partial-update path then has to re-upload as if
+        // everything changed.
+        //
+        // Better: if merging would inflate the dirty area more than 2×
+        // the sum of the two rects on their own, flush the existing one
+        // *now* as its own FRAME and start a fresh accumulator with the
+        // new rect. Adjacent / overlapping rects still merge cheaply.
+        const int existing_area = that->update_info.w * that->update_info.h;
+        const int new_area      = w * h;
+        const int left_x   = std::min(x, that->update_info.x);
+        const int top_y    = std::min(y, that->update_info.y);
+        const int right_x  = std::max(x + w, that->update_info.x + that->update_info.w);
+        const int bottom_y = std::max(y + h, that->update_info.y + that->update_info.h);
+        const int merged_w = right_x - left_x;
+        const int merged_h = bottom_y - top_y;
+        const long merged_area = static_cast<long>(merged_w) * merged_h;
+        const long sum_area    = static_cast<long>(existing_area) + new_area;
+
+        if (merged_area > sum_area * 2)
+        {
+            // Bad merge — flush the existing bbox as its own FRAME and
+            // restart accumulating with the new rect. This bypasses the
+            // repaint() throttle for this one flush, but each rect is
+            // small so wire/CPU cost stays low; the server-side fps cap
+            // protects against pathological flood.
+            const int mode = (that->repaint_mode == repaint_modes::standard)
+                ? that->standard_waveform_mode
+                : that->fast_waveform_mode;
+            that->device.update(
+                that->update_info.x, that->update_info.y,
+                that->update_info.w, that->update_info.h, mode);
+            that->update_info.x = x;
+            that->update_info.y = y;
+            that->update_info.w = w;
+            that->update_info.h = h;
+            that->update_info.has_update = true;
+            return;
+        }
 
         that->update_info.x = left_x;
         that->update_info.y = top_y;
-        that->update_info.w = right_x - left_x;
-        that->update_info.h = bottom_y - top_y;
+        that->update_info.w = merged_w;
+        that->update_info.h = merged_h;
     }
     else
     {

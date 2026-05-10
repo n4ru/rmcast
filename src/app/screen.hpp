@@ -137,6 +137,14 @@ private:
         int x, int y, int w, int h
     );
 
+    /**
+     * Called by the VNC client library when the server reports a cursor
+     * position update (rfbEncodingPointerPos pseudo-encoding). Forwards
+     * to the vncast backend so QML can render a per-region fast tag at
+     * the cursor location.
+     */
+    static rfbBool handle_cursor_pos(rfbClient* client, int x, int y);
+
     /** Accumulator for updates received from the VNC server. */
     struct update_info_struct
     {

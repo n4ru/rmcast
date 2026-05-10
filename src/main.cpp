@@ -413,7 +413,14 @@ auto main(int argc, const char* argv[]) -> int
         bool start_landscape = initial_device_is_landscape();
         std::cerr << "Initial physical orientation: "
                   << (start_landscape ? "landscape" : "portrait") << "\n";
-        if (orientation == vnsee::Orientation::Auto)
+        // Skip the AppLoad-style "resize qtfb to landscape + identity copy"
+        // shortcut when running against the vncast backend — its shm is
+        // fixed at panel-native 1620×2160, so an identity copy of a
+        // landscape source clips the right 540 columns. Let screen.cpp's
+        // Auto resolve to LandscapeCCW which actually rotates into the
+        // panel-portrait shm shape.
+        const bool using_vncast = std::getenv("VNCAST_QTFB_SOCKET") != nullptr;
+        if (orientation == vnsee::Orientation::Auto && !using_vncast)
         {
             if (start_landscape)
             {
@@ -421,7 +428,6 @@ auto main(int argc, const char* argv[]) -> int
                     setenv("QTFB_RESOLUTION", "2160x1620", 0);
                 orientation = vnsee::Orientation::Portrait; // identity copy
             }
-            // else: fall through, screen.cpp's auto resolves to LandscapeCW/CCW.
         }
 
         rmioc::device device = rmioc::device::detect(request);

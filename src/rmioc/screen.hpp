@@ -62,6 +62,13 @@ public:
     auto get_connection() -> qtfb::ClientConnection&;
 
     /**
+     * Push the cursor hotspot through the active backend so the renderer
+     * can tag the cursor area with a fast EPDC waveform. Default sprite
+     * size of 64x64 covers typical OS cursors. No-op under AppLoad qtfb.
+     */
+    void update_cursor(int x, int y, bool visible);
+
+    /**
      * True when this screen is talking to vncast (rm-cast) instead of
      * AppLoad qtfb. vncast doesn't (yet) have an input-forwarding side
      * channel, so callers that pull touch/pen/keyboard events out of

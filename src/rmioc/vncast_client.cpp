@@ -100,6 +100,12 @@ void ClientConnection::handshake() {
         m_waveform = env;
         m_force_grayscale = (m_waveform == "A2" || m_waveform == "DU");
     }
+    // Explicit grayscale override wins over the waveform-derived default.
+    // Used to force A2-ish appearance even when the panel waveform is
+    // (or has to be) GC16/GLR16, by killing all chroma at the source.
+    if (const char *env = std::getenv("VNCAST_FORCE_GRAYSCALE")) {
+        m_force_grayscale = (env[0] == '1');
+    }
 
     HelloC2S h{};
     h.header.magic = kMagic;
@@ -190,6 +196,26 @@ void ClientConnection::blit_rect_to_shm(int x, int y, int w, int h) {
                 sp += 2; dp += 4;
             }
         }
+    } else if (m_format == 2 /* Grayscale8 */) {
+        // Direct RGB565 → 1-byte luma. ~75% less memcpy than the
+        // RGBA8888 path; no chroma at the source means xochitl's
+        // renderer never has to dither colour, and the panel is happy
+        // running fast B&W waveforms (A2 / Pen) over this content.
+        for (int yy = 0; yy < h; ++yy) {
+            const uint8_t  *sp = src + (static_cast<size_t>(y + yy) * src_bpr) + x * 2u;
+            uint8_t        *dp = dst + (static_cast<size_t>(y + yy) * dst_bpr) + x;
+            for (int xx = 0; xx < w; ++xx) {
+                uint16_t px = static_cast<uint16_t>(sp[0]) | (static_cast<uint16_t>(sp[1]) << 8);
+                uint8_t r = (px >> 11) & 0x1F;
+                uint8_t g = (px >>  5) & 0x3F;
+                uint8_t b =  px        & 0x1F;
+                uint8_t r8 = static_cast<uint8_t>((r << 3) | (r >> 2));
+                uint8_t g8 = static_cast<uint8_t>((g << 2) | (g >> 4));
+                uint8_t b8 = static_cast<uint8_t>((b << 3) | (b >> 2));
+                dp[0] = static_cast<uint8_t>((r8 * 30 + g8 * 59 + b8 * 11) / 100);
+                sp += 2; dp += 1;
+            }
+        }
     } else if (m_format == 0 /* Grayscale16 */) {
         for (int yy = 0; yy < h; ++yy) {
             const uint8_t  *sp = src + (static_cast<size_t>(y + yy) * src_bpr) + x * 2u;
@@ -219,7 +245,48 @@ void ClientConnection::send_partial_update(int x, int y, int w, int h) {
     f.header.tag   = static_cast<uint32_t>(Tag::Frame);
     f.seq = ++m_seq;
     f.x = x; f.y = y; f.w = w; f.h = h;
+    f.mode = static_cast<uint32_t>(classify_frame_mode(w, h));
     send_all(m_fd, &f, sizeof(f));
+}
+
+void ClientConnection::send_cursor_pos(int x, int y, int w, int h, bool visible) {
+    // Coalesce: only emit when something actually changed. The VNC server
+    // can fire pointer-pos updates at high frequency.
+    if (x == m_cursor_x && y == m_cursor_y &&
+        static_cast<uint32_t>(w) == m_cursor_w &&
+        static_cast<uint32_t>(h) == m_cursor_h &&
+        visible == m_cursor_visible) {
+        return;
+    }
+    m_cursor_x = x;
+    m_cursor_y = y;
+    m_cursor_w = static_cast<uint32_t>(w);
+    m_cursor_h = static_cast<uint32_t>(h);
+    m_cursor_visible = visible;
+
+    CursorC2S c{};
+    c.header.magic = kMagic;
+    c.header.tag   = static_cast<uint32_t>(Tag::CursorC2S);
+    c.x = x; c.y = y;
+    c.w = static_cast<uint32_t>(w);
+    c.h = static_cast<uint32_t>(h);
+    c.visible = visible ? 1u : 0u;
+    try { send_all(m_fd, &c, sizeof(c)); } catch (...) { /* socket dead, ignore */ }
+}
+
+FrameMode ClientConnection::classify_frame_mode(int w, int h) const {
+    // Area thresholds tuned for ~2160x1620 panel. Keep the bands
+    // generous: cursor/text typically <80x80, scrolling text bands a few
+    // hundred px tall, page changes are large fractions of the screen.
+    const int area = w * h;
+    const int total = static_cast<int>(m_w) * static_cast<int>(m_h);
+    if (total <= 0) return FrameMode::Animation;
+    // < 1% of screen → cursor / single-char typing
+    if (area * 100 < total)        return FrameMode::Animation;
+    // 1% .. 40% → text scrolling / moderate UI updates → still favor speed
+    if (area * 100 < total * 40)   return FrameMode::Mono;
+    // ≥ 40% → page change / image load → quality
+    return FrameMode::Content;
 }
 
 void ClientConnection::send_complete_update() {

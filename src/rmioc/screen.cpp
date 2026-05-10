@@ -89,6 +89,13 @@ void screen::update(int x, int y, int w, int h, int mode, bool /*wait*/)
     }
 }
 
+void screen::update_cursor(int x, int y, bool visible)
+{
+    if (!using_vncast_ || !vncast_) return;  // appload qtfb path: no-op
+    constexpr int kCursorSize = 64;          // generous; covers typical OS cursors
+    vncast_->send_cursor_pos(x, y, kCursorSize, kCursorSize, visible);
+}
+
 void screen::update(int mode, bool /*wait*/)
 {
     if (using_vncast_) {
