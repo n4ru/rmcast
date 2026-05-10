@@ -177,9 +177,14 @@ Rectangle {
         id: frameView
         server: Vncast.qtfbServer
         rotation: {
-            var srv = Vncast.qtfbServer
-            // 1) If the window declares a content orientation different
-            //    from the screen's natural orientation, use that.
+            // Use Window.contentOrientation vs Screen.orientation as the
+            // source of truth. The earlier aspect-comparison fallback
+            // (read this FrameView's own width/height vs shm aspect) was
+            // removed: it never fired in practice on rMPP firmware 3.27.x
+            // (both orientations report PrimaryOrientation, and shm + view
+            // are both portrait), AND reading our own width/height inside
+            // a rotation binding creates a Qt binding loop because the
+            // bounding rect depends on rotation.
             var content = Window.contentOrientation
             if (content === undefined || content === Qt.PrimaryOrientation)
                 content = Screen.primaryOrientation
@@ -187,15 +192,6 @@ Rectangle {
             if (screen === undefined || screen === Qt.PrimaryOrientation)
                 screen = Screen.primaryOrientation
             var base = Screen.angleBetween(content, screen)
-            // 2) Fallback: if the angle is 0 but our visible aspect
-            //    doesn't match the shm aspect, the scene IS rotated and
-            //    nobody told us — infer 90°.
-            if (base === 0 && srv && srv.w > 0 && srv.h > 0
-                           && width > 0 && height > 0) {
-                var shmPortrait  = srv.h > srv.w
-                var viewPortrait = height > width
-                if (shmPortrait !== viewPortrait) base = 90
-            }
             var deg = (base + (root.flipped ? 180 : 0)) % 360
             // Log once per session so we can tell which path won.
             if (!root._loggedOrient) {
