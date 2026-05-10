@@ -66,12 +66,14 @@ private:
     // Defaults match the most-common rMPP/USB-tether scenario.
     QString m_host        = QStringLiteral("10.11.99.2");
     int     m_port        = 5900;
-    // 15 fps default: chosen for WiFi sanity. Uncapped (0) saturates the
-    // wire on a slow link and the queue backs up — perceived latency
-    // gets worse, not better, because each frame waits longer behind a
-    // pile of stale ones. e-ink can't redraw faster than ~10-15 anyway.
-    // Override in ~/.config/vncast.json if you're on USB tether.
-    int     m_fps         = 15;
+    // 30 fps default. With mono1z compression a full frame is ~11 KB on
+    // the wire, so 30 fps over WiFi is well under saturation. Higher than
+    // e-ink can physically refresh (~10-15 fps for A2), but the cap exists
+    // to bound full-frame steady-state CPU; small dirty rects (cursor,
+    // pen strokes) bypass it entirely for low-latency interactive paint.
+    // Override in ~/.config/vncast.json — 0 = uncapped, useful on
+    // USB tether or for benchmarking.
+    int     m_fps         = 30;
     // Vestigial — Pen mode looked terrible on full-screen content; we
     // only ever use A2 now. Kept in settings.json for back-compat with
     // existing configs but UI no longer exposes it.

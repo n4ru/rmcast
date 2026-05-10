@@ -143,7 +143,17 @@ void Server::onSocketReadyRead() {
             // Apply the negotiated fps cap. We always swallow the message
             // (so the shm gets the new pixels), but skip the QML repaint
             // signal when the previous emit is too recent.
-            if (m_fps_cap > 0 && m_min_period_ms > 0) {
+            //
+            // Latency carve-out: small dirty rects (cursor blink, pen
+            // strokes, focus changes) bypass the cap. The cap exists to
+            // bound steady-state CPU on full-frame updates, not to throttle
+            // interactive feedback. Threshold = 256×256 pixels — anything
+            // under that is "interactive content" and gets painted ASAP.
+            // Sentinel (dw=0,dh=0,full-frame) and larger rects respect
+            // the cap.
+            const bool small_rect = (msg.w > 0 && msg.h > 0
+                                    && msg.w <= 256 && msg.h <= 256);
+            if (!small_rect && m_fps_cap > 0 && m_min_period_ms > 0) {
                 const qint64 now_ms = QDateTime::currentMSecsSinceEpoch();
                 if (m_last_emit_ms != 0 && now_ms - m_last_emit_ms < m_min_period_ms) {
                     break;   // drop this frame for paint
