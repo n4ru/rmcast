@@ -23,6 +23,11 @@ class Settings : public QObject {
     // gray levels) or 1-bit encoding without grayscale (color content
     // dithered to mono).
     Q_PROPERTY(bool    mono1        READ mono1        WRITE setMono1        NOTIFY changed)
+    // Low-latency mode: pick the DU EPDC waveform instead of A2.
+    // ~30ms faster panel refresh on B&W content (text, cursor, pen)
+    // at the cost of grayscale ghosting if your source isn't truly
+    // bilevel. Pairs naturally with Monochrome color mode.
+    Q_PROPERTY(bool    lowLatency   READ lowLatency   WRITE setLowLatency   NOTIFY changed)
     Q_PROPERTY(int     compressLevel READ compressLevel WRITE setCompressLevel NOTIFY changed)
 public:
     explicit Settings(QObject *parent = nullptr);
@@ -35,6 +40,7 @@ public:
     QString encoding() const     { return m_encoding; }
     bool    grayscale() const    { return m_grayscale; }
     bool    mono1() const        { return m_mono1; }
+    bool    lowLatency() const   { return m_lowLatency; }
     int     compressLevel() const { return m_compressLevel; }
 
     void setHost(const QString &v);
@@ -45,6 +51,7 @@ public:
     void setEncoding(const QString &v);
     void setGrayscale(bool v);
     void setMono1(bool v);
+    void setLowLatency(bool v);
     void setCompressLevel(int v);
 
     Q_INVOKABLE void save();
@@ -88,6 +95,10 @@ private:
     // the rcastmono1 pseudo-encoding (rcast-host). Standard VNC servers
     // ignore unknown encoding IDs harmlessly.
     bool    m_mono1       = false;
+    // Low-latency: pick DU EPDC waveform instead of A2 at session start.
+    // Off by default — A2 looks slightly better and DU only really pays
+    // off on truly bilevel content. Surfaced in the Cast UI as a toggle.
+    bool    m_lowLatency  = false;
     // Hidden — no UI knob. Used for benchmarking. Edit
     // /home/root/.config/vncast.json to override (0..9, default 0).
     int     m_compressLevel = 0;

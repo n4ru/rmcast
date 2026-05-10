@@ -31,6 +31,7 @@ void Settings::load() {
     if (o.contains("encoding"))    m_encoding    = o.value("encoding").toString(m_encoding);
     if (o.contains("grayscale"))   m_grayscale   = o.value("grayscale").toBool(m_grayscale);
     if (o.contains("mono1"))       m_mono1       = o.value("mono1").toBool(m_mono1);
+    if (o.contains("lowLatency"))  m_lowLatency  = o.value("lowLatency").toBool(m_lowLatency);
     if (o.contains("compressLevel")) m_compressLevel = o.value("compressLevel").toInt(m_compressLevel);
     qInfo() << "[vncast/settings] loaded" << configPath();
 }
@@ -45,6 +46,7 @@ void Settings::save() {
     o["encoding"]    = m_encoding;
     o["grayscale"]   = m_grayscale;
     o["mono1"]       = m_mono1;
+    o["lowLatency"]  = m_lowLatency;
     o["compressLevel"] = m_compressLevel;
     QFile f(configPath());
     if (!f.open(QIODevice::WriteOnly | QIODevice::Truncate)) {
@@ -65,6 +67,7 @@ QVariantMap Settings::asMap() const {
         {"encoding",    m_encoding},
         {"grayscale",   m_grayscale},
         {"mono1",       m_mono1},
+        {"lowLatency",  m_lowLatency},
         {"compressLevel", m_compressLevel},
     };
 }
@@ -77,4 +80,5 @@ void Settings::setOrientation(const QString &v) { if (v == m_orientation) return
 void Settings::setEncoding(const QString &v)    { if (v == m_encoding) return;    m_encoding = v;    emit changed(); }
 void Settings::setGrayscale(bool v)             { if (v == m_grayscale) return;   m_grayscale = v;   emit changed(); }
 void Settings::setMono1(bool v)                 { if (v == m_mono1) return;       m_mono1 = v;       emit changed(); }
+void Settings::setLowLatency(bool v)            { if (v == m_lowLatency) return;  m_lowLatency = v;  emit changed(); }
 void Settings::setCompressLevel(int v)          { if (v == m_compressLevel) return; m_compressLevel = qBound(0, v, 9); emit changed(); }

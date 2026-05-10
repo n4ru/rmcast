@@ -160,10 +160,17 @@ void VncastLauncher::startSession(const QVariantMap &cfg) {
     const int     port        = cfg.value("port", 5900).toInt();
     const int     fps         = cfg.value("fps", 0).toInt();
     const QString encoding    = cfg.value("encoding", "COPYRECT").toString();
-    const QString waveform    = cfg.value("waveform", "A2").toString();
     const QString orientation = cfg.value("orientation", "auto").toString();
     const bool    grayscale   = cfg.value("grayscale",   true).toBool();
     const bool    mono1       = cfg.value("mono1",       false).toBool();
+    const bool    lowLatency  = cfg.value("lowLatency",  false).toBool();
+    // Low-latency mode forces the DU waveform regardless of what the
+    // user (or default) had saved. DU is ~30ms faster than A2 on B&W
+    // content — text, cursors, pen strokes — at the cost of grayscale
+    // ghosting if the source isn't truly bilevel. Pairs with the
+    // Monochrome color mode for the cleanest fast-typing experience.
+    const QString waveform    = lowLatency ? QStringLiteral("DU")
+                                           : cfg.value("waveform", "A2").toString();
 
     // Pre-create the server (if needed) so we can configure it BEFORE
     // start() decides on the shm format. Grayscale mode allocates the shm

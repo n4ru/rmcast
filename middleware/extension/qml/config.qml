@@ -33,8 +33,9 @@ Rectangle {
           Settings.port === 5900
               ? Settings.host
               : Settings.host + ":" + Settings.port
-    property bool   grayscale: Settings.grayscale
-    property bool   mono1:     Settings.mono1
+    property bool   grayscale:  Settings.grayscale
+    property bool   mono1:      Settings.mono1
+    property bool   lowLatency: Settings.lowLatency
 
     // Parse "host", "host:port", or "[ipv6]:port" into {host, port}. Falls
     // back to (input, 5900) on any ambiguity (bare IPv6 with multiple
@@ -94,8 +95,10 @@ Rectangle {
         Settings.port        = hp.port
         Settings.grayscale   = root.grayscale
         Settings.mono1       = root.mono1
+        Settings.lowLatency  = root.lowLatency
         // (fps/waveform/orientation/encoding/compressLevel keep their
-        // already-loaded values — we don't touch them here.)
+        // already-loaded values — we don't touch them here. lowLatency
+        // overrides waveform at session-start time in launcher.cpp.)
         Settings.save()
         Vncast.startSession(Settings.asMap())
         root.requestConnect()
@@ -233,6 +236,55 @@ Rectangle {
                 font.pixelSize: 18
                 color: "black"
                 opacity: 0.5
+            }
+        }
+
+        // ---- Low-latency toggle ----
+        // Drives the launcher to pick the DU EPDC waveform instead of A2
+        // at session start. ~30 ms faster panel refresh on B&W content
+        // (text, cursors, pen strokes), at the cost of grayscale ghosting
+        // on truly grey content. Best paired with Monochrome above.
+        Item {
+            width: parent.width
+            height: 64
+            Column {
+                anchors.left: parent.left
+                anchors.verticalCenter: parent.verticalCenter
+                spacing: 4
+                Text {
+                    text: "Low-latency mode"
+                    font.family: "Noto Sans"
+                    font.pixelSize: 22
+                    color: "black"
+                }
+                Text {
+                    text: "DU waveform — faster typing, best on monochrome."
+                    font.family: "Noto Sans"
+                    font.pixelSize: 16
+                    color: "black"
+                    opacity: 0.5
+                }
+            }
+            Rectangle {
+                anchors { right: parent.right; verticalCenter: parent.verticalCenter }
+                width: 76
+                height: 38
+                radius: 19
+                color: root.lowLatency ? "black" : "white"
+                border { color: "black"; width: 2 }
+                Rectangle {
+                    width: 28
+                    height: 28
+                    radius: 14
+                    color: root.lowLatency ? "white" : "black"
+                    anchors.verticalCenter: parent.verticalCenter
+                    x: root.lowLatency ? parent.width - width - 5 : 5
+                    Behavior on x { NumberAnimation { duration: 120 } }
+                }
+                MouseArea {
+                    anchors.fill: parent
+                    onClicked: { root.lowLatency = !root.lowLatency; root.dismissKeyboard() }
+                }
             }
         }
 
