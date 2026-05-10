@@ -55,6 +55,16 @@ void FrameView::onFrameReady(uint32_t seq, int x, int y, int dw, int dh) {
                           << "waveform=" << m_server->waveform();
     }
 
+    // Start the latency timer here — paint() will close it. We track only
+    // one outstanding paint at a time; if Qt coalesces multiple frames
+    // into one paint() call the timer covers the whole gap, which is
+    // actually the right answer ("how long from frame-ready to pixels
+    // committed to the scene").
+    if (!m_pending_paint) {
+        m_pending_paint_timer.start();
+        m_pending_paint = true;
+    }
+
     // First frame and full-screen sentinels (0,0,0,0): repaint everything.
     // Otherwise only invalidate the mapped subregion so Qt scenegraph
     // re-uploads ~just-the-cursor-area instead of the whole 14 MB texture.
@@ -117,17 +127,35 @@ void FrameView::paint(QPainter *p) {
         const QRectF tgt(m_offset, m_drawn);
         const QRectF src(0, 0, m_img.width(), m_img.height());
         p->drawImage(tgt, m_img, src);
-        return;
+    } else {
+        // Rotated path: m_drawn already accounts for w/h swap.
+        p->save();
+        p->translate(boundingRect().center());
+        p->rotate(static_cast<qreal>(m_rotation));
+        const QRectF tgt(-m_drawn.width() / 2.0, -m_drawn.height() / 2.0,
+                          m_drawn.width(),        m_drawn.height());
+        p->drawImage(tgt, m_img);
+        p->restore();
     }
 
-    // Rotated path: m_drawn already accounts for w/h swap.
-    p->save();
-    p->translate(boundingRect().center());
-    p->rotate(static_cast<qreal>(m_rotation));
-    const QRectF tgt(-m_drawn.width() / 2.0, -m_drawn.height() / 2.0,
-                      m_drawn.width(),        m_drawn.height());
-    p->drawImage(tgt, m_img);
-    p->restore();
+    // Close the latency timer started in onFrameReady. We're measuring
+    // ms between "frame arrived from vnsee" and "drawImage returned" —
+    // the QML/scenegraph half of the pipeline. Doesn't include the EPDC
+    // waveform settle on the panel below, but does cover everything we
+    // can reach from QML.
+    if (m_pending_paint) {
+        m_lat_window_us += static_cast<quint64>(m_pending_paint_timer.nsecsElapsed() / 1000);
+        m_lat_window_count++;
+        m_pending_paint = false;
+        if (m_lat_window_count >= m_lat_log_every) {
+            const double avg_ms = (double)m_lat_window_us / m_lat_window_count / 1000.0;
+            qInfo().noquote() << "[vncast/lat] frameReady→paint avg="
+                              << QString::number(avg_ms, 'f', 2) << "ms over "
+                              << m_lat_window_count << "frames";
+            m_lat_window_us    = 0;
+            m_lat_window_count = 0;
+        }
+    }
 }
 
 void FrameView::recalcLayout() {

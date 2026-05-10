@@ -2,6 +2,7 @@
 #include <QQuickPaintedItem>
 #include <QImage>
 #include <QPointer>
+#include <QElapsedTimer>
 #include "server.h"
 
 namespace vncast::qtfb {
@@ -64,6 +65,17 @@ private:
     QPointF m_offset   = QPointF(0, 0);
     QSizeF  m_drawn    = QSizeF(0, 0);   // post-aspect-fit, pre-rotation size
     bool    m_layoutValid = false;
+
+    // Client-side latency tracking. m_pending_paint_timer is started in
+    // onFrameReady (frame arrived via shm) and stopped at the end of
+    // paint() — measures the QML/scenegraph half of the pipeline only.
+    // Logs an average every m_lat_log_every frames so we have ground
+    // truth alongside the server's FBUR→FBU stats.
+    QElapsedTimer m_pending_paint_timer;
+    bool          m_pending_paint = false;
+    quint64       m_lat_window_us    = 0;
+    quint64       m_lat_window_count = 0;
+    static constexpr quint64 m_lat_log_every = 30;
 
 protected:
     void geometryChange(const QRectF &newGeometry, const QRectF &oldGeometry) override;

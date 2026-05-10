@@ -158,7 +158,13 @@ Rectangle {
                  && Vncast.qtfbServer
                  && Vncast.qtfbServer.cursorVisible
                  && Vncast.qtfbServer.cursorX >= 0
-        mode: Epaper.ScreenModeItem.Animation
+        // Pen mode is the rMPP's fastest waveform — designed for stroke-
+        // style content. The cursor is the right shape for it: small
+        // bounding box, high-contrast B&W transitions, frequent updates.
+        // Ghosting from Pen is irrelevant here because the cursor area is
+        // continuously refreshed by subsequent frames. Empirically should
+        // be ~50ms vs A2's ~120ms for cursor blink + text-caret movement.
+        mode: Epaper.ScreenModeItem.Pen
     }
 
     // ---- frame view ----

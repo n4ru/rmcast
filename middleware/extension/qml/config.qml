@@ -239,11 +239,14 @@ Rectangle {
             }
         }
 
-        // ---- Low-latency toggle ----
-        // Drives the launcher to pick the DU EPDC waveform instead of A2
-        // at session start. ~30 ms faster panel refresh on B&W content
-        // (text, cursors, pen strokes), at the cost of grayscale ghosting
-        // on truly grey content. Best paired with Monochrome above.
+        // ---- Force DU waveform toggle ----
+        // Picks DU instead of A2 at session start. Whether DU is
+        // actually faster than A2 on this rMPP panel is empirically
+        // unconfirmed — the previous "Low-latency" label was promissory
+        // without measurements to back it. Keeping the toggle exposed
+        // because some content profiles (very high-contrast B&W text)
+        // may behave differently on DU vs A2; left here as an A/B knob
+        // until we have ground-truth latency numbers per waveform.
         Item {
             width: parent.width
             height: 64
@@ -252,13 +255,13 @@ Rectangle {
                 anchors.verticalCenter: parent.verticalCenter
                 spacing: 4
                 Text {
-                    text: "Low-latency mode"
+                    text: "Force DU waveform"
                     font.family: "Noto Sans"
                     font.pixelSize: 22
                     color: "black"
                 }
                 Text {
-                    text: "DU waveform — faster typing, best on monochrome."
+                    text: "Use DU instead of A2 for the panel. Effect on latency is content-dependent."
                     font.family: "Noto Sans"
                     font.pixelSize: 16
                     color: "black"
