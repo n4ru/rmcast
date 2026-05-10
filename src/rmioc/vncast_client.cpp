@@ -271,7 +271,14 @@ void ClientConnection::send_cursor_pos(int x, int y, int w, int h, bool visible)
     c.w = static_cast<uint32_t>(w);
     c.h = static_cast<uint32_t>(h);
     c.visible = visible ? 1u : 0u;
-    try { send_all(m_fd, &c, sizeof(c)); } catch (...) { /* socket dead, ignore */ }
+    // Non-blocking. Cursor positions are continuously sent as a stream;
+    // missing one is fine, but blocking the whole client thread when the
+    // qtfb buffer is full is NOT (we'd stop sending FBURs to the RFB
+    // server, which then trips the server-side ghost detector and tears
+    // us down). MSG_DONTWAIT returns EAGAIN on a full buffer; we silently
+    // drop. Last position will catch up on the next change.
+    ssize_t r = ::send(m_fd, &c, sizeof(c), MSG_DONTWAIT);
+    (void)r;  // ignore EAGAIN, EPIPE — we just don't update the overlay
 }
 
 FrameMode ClientConnection::classify_frame_mode(int w, int h) const {
