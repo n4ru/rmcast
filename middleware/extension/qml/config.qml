@@ -25,9 +25,49 @@ Rectangle {
     signal requestClose()
     signal requestConnect()
 
-    property string host:      Settings.host
+    // Single field combining host and port for the UI. Stored in Settings as
+    // two separate values so the launcher can keep using the existing
+    // (host, port) signature and so we don't surface ":5900" noise when the
+    // user is on the default port.
+    property string hostInput:
+          Settings.port === 5900
+              ? Settings.host
+              : Settings.host + ":" + Settings.port
     property bool   grayscale: Settings.grayscale
     property bool   mono1:     Settings.mono1
+
+    // Parse "host", "host:port", or "[ipv6]:port" into {host, port}. Falls
+    // back to (input, 5900) on any ambiguity (bare IPv6 with multiple
+    // colons, non-numeric trailing segment, etc).
+    function parseHostPort(s) {
+        var t = (s || "").trim();
+        if (t === "")               return { host: "", port: 5900 };
+        // [ipv6]:port form
+        if (t.charAt(0) === "[") {
+            var rb = t.indexOf("]");
+            if (rb > 0) {
+                var ipv6 = t.substring(1, rb);
+                var rest = t.substring(rb + 1);
+                if (rest.length === 0) return { host: ipv6, port: 5900 };
+                if (rest.charAt(0) === ":") {
+                    var pp = parseInt(rest.substring(1));
+                    if (!isNaN(pp) && pp >= 1 && pp <= 65535)
+                        return { host: ipv6, port: pp };
+                }
+            }
+            return { host: t, port: 5900 };
+        }
+        // host:port — split on the LAST colon, but only if there's exactly
+        // one colon (avoids misparsing a bare unbracketed IPv6).
+        var first = t.indexOf(":");
+        var last  = t.lastIndexOf(":");
+        if (first === -1)            return { host: t, port: 5900 };
+        if (first !== last)          return { host: t, port: 5900 };  // ambiguous
+        var p = parseInt(t.substring(last + 1));
+        if (isNaN(p) || p < 1 || p > 65535)
+            return { host: t, port: 5900 };
+        return { host: t.substring(0, last), port: p };
+    }
 
     // Derived: which segment is currently selected. The progression is
     //   Color      → grayscale=false, mono1=false  (full-luma, color encoding)
@@ -40,7 +80,7 @@ Rectangle {
         : root.grayscale           ? "Grayscale"
                                    : "Color"
 
-    Component.onCompleted: console.log("[vncast/config.qml] loaded; host=" + host)
+    Component.onCompleted: console.log("[vncast/config.qml] loaded; hostInput=" + hostInput)
     Keys.onEscapePressed: root.requestClose()
 
     function dismissKeyboard() {
@@ -49,10 +89,12 @@ Rectangle {
     }
 
     function commitAndConnect() {
-        Settings.host        = root.host
+        var hp = root.parseHostPort(root.hostInput)
+        Settings.host        = hp.host
+        Settings.port        = hp.port
         Settings.grayscale   = root.grayscale
         Settings.mono1       = root.mono1
-        // (port/fps/waveform/orientation/encoding/compressLevel keep their
+        // (fps/waveform/orientation/encoding/compressLevel keep their
         // already-loaded values — we don't touch them here.)
         Settings.save()
         Vncast.startSession(Settings.asMap())
@@ -95,44 +137,58 @@ Rectangle {
         spacing: 28
 
         // ---- Host card ----
-        Rectangle {
+        Column {
             width: parent.width
-            height: hostCell.height
-            color: "white"
-            border { color: "black"; width: 1 }
-            radius: 8
-
-            Item {
-                id: hostCell
+            spacing: 8
+            Rectangle {
                 width: parent.width
-                height: 88
-                Text {
-                    id: hostLabel
-                    text: "Host"
-                    anchors { left: parent.left; verticalCenter: parent.verticalCenter; leftMargin: 24 }
-                    font.family: "Noto Sans"
-                    font.pixelSize: 22
-                    color: "black"
-                }
-                TextInput {
-                    id: hostField
-                    text: root.host
-                    anchors {
-                        left: hostLabel.right
-                        right: parent.right
-                        verticalCenter: parent.verticalCenter
-                        leftMargin: 24
-                        rightMargin: 24
+                height: hostCell.height
+                color: "white"
+                border { color: "black"; width: 1 }
+                radius: 8
+
+                Item {
+                    id: hostCell
+                    width: parent.width
+                    height: 88
+                    Text {
+                        id: hostLabel
+                        text: "Host"
+                        anchors { left: parent.left; verticalCenter: parent.verticalCenter; leftMargin: 24 }
+                        font.family: "Noto Sans"
+                        font.pixelSize: 22
+                        color: "black"
                     }
-                    horizontalAlignment: TextInput.AlignRight
-                    font.family: "Noto Sans"
-                    font.pixelSize: 22
-                    color: "black"
-                    selectByMouse: true
-                    onTextChanged: root.host = text
-                    onAccepted: root.dismissKeyboard()
-                    onActiveFocusChanged: if (!activeFocus && Qt.inputMethod) Qt.inputMethod.hide()
+                    TextInput {
+                        id: hostField
+                        text: root.hostInput
+                        anchors {
+                            left: hostLabel.right
+                            right: parent.right
+                            verticalCenter: parent.verticalCenter
+                            leftMargin: 24
+                            rightMargin: 24
+                        }
+                        horizontalAlignment: TextInput.AlignRight
+                        font.family: "Noto Sans"
+                        font.pixelSize: 22
+                        color: "black"
+                        selectByMouse: true
+                        onTextChanged: root.hostInput = text
+                        onAccepted: root.dismissKeyboard()
+                        onActiveFocusChanged: if (!activeFocus && Qt.inputMethod) Qt.inputMethod.hide()
+                    }
                 }
+            }
+            Text {
+                width: parent.width
+                wrapMode: Text.WordWrap
+                horizontalAlignment: Text.AlignRight
+                text: "Optional :port (default 5900)"
+                font.family: "Noto Sans"
+                font.pixelSize: 16
+                color: "black"
+                opacity: 0.5
             }
         }
 
