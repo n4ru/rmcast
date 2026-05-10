@@ -162,30 +162,49 @@ Rectangle {
     }
 
     // ---- frame view ----
-    // Orientation-aware rotation:
-    //   vnsee pre-rotates landscape source into a panel-portrait shm
-    //   (1620×2160). xochitl rotates the QML scene to match the user's
-    //   tablet orientation. To undo that scene rotation here so the cast
-    //   fills the panel right-way-up, we rotate the FrameView by the
-    //   inverse angle.
+    // Orientation-aware rotation. vnsee pre-rotates landscape source into
+    // a panel-portrait shm (1620×2160). To undo any scene rotation
+    // xochitl applied (so the cast lines up with the user's view), we
+    // rotate the FrameView by the inverse angle. Tested on rMPP firmware
+    // 3.27.x where Screen.orientation stays at PrimaryOrientation
+    // regardless of how the device is held — so we have to fall back to
+    // either Window.contentOrientation (if xochitl declares it) or, last
+    // resort, an aspect-ratio compare on the visible bounds.
     //
-    //   We use Screen.orientation directly (rather than aspect inference)
-    //   per user request 2026-05-10: "lets first assume the orientation
-    //   is working." Screen.angleBetween(primary, current) returns the
-    //   degrees Qt rotated for display; FrameView applies the same value
-    //   so the cast lines up with the user's view.
-    //
-    //   Flip toggle adds 180° for the upside-down case (the only thing
-    //   Screen.orientation can't disambiguate is which way the user is
-    //   physically holding the tablet within an axis).
+    // Flip toggle adds 180° for the upside-down case.
     property bool flipped: false
     FrameView {
         id: frameView
         server: Vncast.qtfbServer
         rotation: {
-            var base = Screen.angleBetween(Screen.primaryOrientation,
-                                           Screen.orientation)
-            return (base + (root.flipped ? 180 : 0)) % 360
+            var srv = Vncast.qtfbServer
+            // 1) If the window declares a content orientation different
+            //    from the screen's natural orientation, use that.
+            var content = Window.contentOrientation
+            if (content === undefined || content === Qt.PrimaryOrientation)
+                content = Screen.primaryOrientation
+            var screen = Screen.orientation
+            if (screen === undefined || screen === Qt.PrimaryOrientation)
+                screen = Screen.primaryOrientation
+            var base = Screen.angleBetween(content, screen)
+            // 2) Fallback: if the angle is 0 but our visible aspect
+            //    doesn't match the shm aspect, the scene IS rotated and
+            //    nobody told us — infer 90°.
+            if (base === 0 && srv && srv.w > 0 && srv.h > 0
+                           && width > 0 && height > 0) {
+                var shmPortrait  = srv.h > srv.w
+                var viewPortrait = height > width
+                if (shmPortrait !== viewPortrait) base = 90
+            }
+            var deg = (base + (root.flipped ? 180 : 0)) % 360
+            // Log once per session so we can tell which path won.
+            if (!root._loggedOrient) {
+                console.log("[vncast/session] orient: content=" + content
+                          + " screen=" + screen + " base=" + base
+                          + " flipped=" + root.flipped + " final=" + deg)
+                root._loggedOrient = true
+            }
+            return deg
         }
         anchors {
             top:    root.fullscreen ? parent.top    : statusLine.bottom
@@ -196,6 +215,7 @@ Rectangle {
             topMargin: root.fullscreen ? 0 : 24
         }
     }
+    property bool _loggedOrient: false
 
     // ---- disconnect row (chrome) ----
     Item {

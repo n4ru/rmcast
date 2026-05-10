@@ -15,21 +15,33 @@
 
 AFFECT /qml/device/view/main/MainView.qml
     IMPORT net.example.Vncast 1.0
+    IMPORT QtQuick.Window 2.15
     TRAVERSE Background
         LOCATE AFTER ALL
         INSERT {
             // Cast is fullscreen — the Loader covers the entire panel,
             // sidebar included, both during config and during the live
             // session. Exit paths are the Cancel/Disconnect buttons inside
-            // the overlay; the user has no way back to xochitl until they
-            // tap one of those (by design — fewer accidental dismissals).
+            // the overlay.
+            //
+            // We declare the Loader as a child of Background (because
+            // that's the only top-level traversal target qmldiff exposes
+            // to us), but immediately reparent it to Window.contentItem
+            // at Component.onCompleted. Background can be just the editor
+            // area in notebook view, leaving the document toolbar /
+            // sidebar / X-close visible underneath us — reparenting to
+            // contentItem (the top-level QQuickItem of the scene) means
+            // anchors.fill always covers the whole panel.
             Loader {
                 id: _vncastView
                 anchors.fill: parent
                 active: false
                 source: "qrc:/vnsee/qml/launcher.qml"
                 z: 1000
-                Component.onCompleted: Vncast.registerOverlayLoader(_vncastView)
+                Component.onCompleted: {
+                    if (Window.contentItem) parent = Window.contentItem;
+                    Vncast.registerOverlayLoader(_vncastView);
+                }
                 onLoaded: {
                     if (item && item.requestClose) {
                         item.requestClose.connect(function() {
@@ -38,10 +50,6 @@ AFFECT /qml/device/view/main/MainView.qml
                     }
                 }
             }
-            // (The previous _vncastSidebarTap MouseArea was removed when
-            // Cast went fullscreen — the sidebar is covered, so tap-on-
-            // sidebar is no longer a meaningful gesture. Cancel/Disconnect
-            // inside the overlay are the only exits.)
         }
     END TRAVERSE
 END AFFECT
